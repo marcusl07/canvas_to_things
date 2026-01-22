@@ -1,0 +1,60 @@
+name: Canvas Things Poll
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Download previous state artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: canvas-state
+          path: data
+        continue-on-error: true
+
+      - name: Ensure state file exists
+        run: |
+          mkdir -p data
+          touch data/state.json
+
+      - name: Run poller
+        env:
+          CANVAS_BASE_URL: ${{ secrets.CANVAS_BASE_URL }}
+          CANVAS_TOKEN: ${{ secrets.CANVAS_TOKEN }}
+          THINGS_EMAIL: ${{ secrets.THINGS_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+        run: |
+          python -m canvas_things.main --per-page 50
+
+      - name: Upload updated state artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-state
+          path: data/state.json
+          retention-days: 30

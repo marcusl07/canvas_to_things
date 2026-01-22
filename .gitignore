@@ -1,0 +1,20 @@
+# OS / editor noise
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local environments
+.venv/
+.env
+.env.*
+
+# Runtime artifacts
+.pytest_cache/
+data/state.json
+
+# Local config overrides
+config/config.yml
+
+# Opencode harness files (leave local)
+opencode_memory.txt
+opencode_requirements_doc.txt

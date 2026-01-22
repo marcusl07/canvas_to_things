@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+src/canvas_things/__init__.py
+src/canvas_things/canvas_client.py
+src/canvas_things/config.py
+src/canvas_things/main.py
+src/canvas_things/notifier.py
+src/canvas_things/state.py
+src/canvas_things_mail_bridge.egg-info/PKG-INFO
+src/canvas_things_mail_bridge.egg-info/SOURCES.txt
+src/canvas_things_mail_bridge.egg-info/dependency_links.txt
+src/canvas_things_mail_bridge.egg-info/requires.txt
+src/canvas_things_mail_bridge.egg-info/top_level.txt
+tests/test_canvas_client.py
+tests/test_config_state.py

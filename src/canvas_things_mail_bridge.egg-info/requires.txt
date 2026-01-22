@@ -1,0 +1,5 @@
+PyYAML>=6.0.1
+requests>=2.32
+
+[deV]
+pytest>=8.3

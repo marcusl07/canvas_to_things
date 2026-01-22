@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: canvas-things-mail-bridge
+Version: 0.0.1
+Summary: Automation that emails Canvas assignments into Things via Mail to Things
+Author: TODO
+Requires-Python: >=3.11
+Requires-Dist: PyYAML>=6.0.1
+Requires-Dist: requests>=2.32
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3; extra == "dev"

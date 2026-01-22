@@ -1,0 +1,18 @@
+# Sample configuration for the Canvas → Things Mail Bridge
+# Copy to config/config.yml and edit values.
+
+canvas:
+  base_url: ${CANVAS_BASE_URL}
+  courses:
+    - id: 12345
+      alias: "MATH201"
+      include_description: true
+
+email:
+  from_name: "Canvas Bot"
+  subject_template: "{{ course_alias }} – {{ title }} (Due {{ due_display }})"
+  include_description: true
+  max_description_chars: 500
+
+schedule:
+  frequency_label: "every 2 hours"
