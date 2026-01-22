@@ -45,8 +45,28 @@ jobs:
       - name: Write Canvas config from secret
         if: ${{ env.CANVAS_CONFIG_YAML != '' }}
         run: |
-          mkdir -p config
-          printf "%s" "${{ env.CANVAS_CONFIG_YAML }}" > config/config.yml
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+
+          raw = os.environ.get("CANVAS_CONFIG_YAML", "")
+          if not raw.strip():
+              print("CANVAS_CONFIG_YAML is empty", file=sys.stderr)
+              sys.exit(1)
+
+          sanitized = raw.replace("\r\n", "\n").replace("\r", "\n").replace("\t", "    ")
+          path = Path("config/config.yml")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(sanitized, encoding="utf-8")
+
+          import yaml  # PyYAML is installed in previous step
+          try:
+              yaml.safe_load(sanitized)  # validate before continuing
+          except Exception as exc:
+              print("Failed to parse CANVAS_CONFIG_YAML: ", exc, file=sys.stderr)
+              sys.exit(1)
+          PY
 
       - name: Fallback to example config
         if: ${{ env.CANVAS_CONFIG_YAML == '' }}

@@ -26,8 +26,8 @@ Poll Canvas LMS for assignment updates and email them into Things 3 via Mail to 
 canvas:
   base_url: ${CANVAS_BASE_URL}
   courses:
-    - id: 12345
-      alias: "MATH201"
+    - id: 12345        # REQUIRED: replace with your Canvas course ID
+      alias: "MATH201" # REQUIRED: short label shown in Things
       include_description: true
     - id: 67890
       alias: "HIST101"
