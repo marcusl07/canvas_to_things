@@ -12,6 +12,8 @@ jobs:
   poll:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CANVAS_CONFIG_YAML: ${{ secrets.CANVAS_CONFIG_YAML }}
 
     steps:
       - name: Checkout repository
@@ -41,13 +43,13 @@ jobs:
           touch data/state.json
 
       - name: Write Canvas config from secret
-        if: ${{ secrets.CANVAS_CONFIG_YAML != '' }}
+        if: ${{ env.CANVAS_CONFIG_YAML != '' }}
         run: |
           mkdir -p config
-          printf "%s" "${{ secrets.CANVAS_CONFIG_YAML }}" > config/config.yml
+          printf "%s" "${{ env.CANVAS_CONFIG_YAML }}" > config/config.yml
 
       - name: Fallback to example config
-        if: ${{ secrets.CANVAS_CONFIG_YAML == '' }}
+        if: ${{ env.CANVAS_CONFIG_YAML == '' }}
         run: |
           mkdir -p config
           cp config/config.example.yml config/config.yml
