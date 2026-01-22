@@ -40,7 +40,7 @@ jobs:
       - name: Ensure state file exists
         run: |
           mkdir -p data
-          touch data/state.json
+          if [ ! -s data/state.json ]; then echo "{}" > data/state.json; fi
 
       - name: Write Canvas config from secret
         if: ${{ env.CANVAS_CONFIG_YAML != '' }}
