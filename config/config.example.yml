@@ -7,12 +7,17 @@ canvas:
     - id: 12345
       alias: "MATH201"
       include_description: true
+    - id: 67890
+      alias: "HIST101"
+      include_description: false
 
 email:
   from_name: "Canvas Bot"
-  subject_template: "{{ course_alias }} – {{ title }} (Due {{ due_display }})"
+  subject_template: "{course_alias} – {title}"
   include_description: true
   max_description_chars: 500
 
-schedule:
-  frequency_label: "every 2 hours"
+run:
+  timezone: "America/New_York"
+  dry_run: false
+  state_file: "data/state.json"

@@ -40,6 +40,18 @@ jobs:
           mkdir -p data
           touch data/state.json
 
+      - name: Write Canvas config from secret
+        if: ${{ secrets.CANVAS_CONFIG_YAML != '' }}
+        run: |
+          mkdir -p config
+          printf "%s" "${{ secrets.CANVAS_CONFIG_YAML }}" > config/config.yml
+
+      - name: Fallback to example config
+        if: ${{ secrets.CANVAS_CONFIG_YAML == '' }}
+        run: |
+          mkdir -p config
+          cp config/config.example.yml config/config.yml
+
       - name: Run poller
         env:
           CANVAS_BASE_URL: ${{ secrets.CANVAS_BASE_URL }}
