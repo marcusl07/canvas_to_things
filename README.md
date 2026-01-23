@@ -1,12 +1,6 @@
 # Canvas → Things Mail Bridge
 
-Poll Canvas LMS for assignment updates and email them into Things 3 via Mail to Things. Everything runs inside GitHub Actions, so you don’t need a server or always-on Mac.
-
-## Highlights
-- 🕒 Automated polling every 2 hours (configurable cron)
-- 📨 Sends plain-text emails via SMTP straight to your `@things.email` inbox
-- 🧠 Remembers which assignments you’ve already notified on thanks to a JSON state artifact
-- 🔐 All secrets (Canvas token, SMTP credentials, Things email) stay inside GitHub repository secrets
+Poll Canvas LMS for assignment updates and email them into Things 3 via Mail to Things. Everything runs inside GitHub Actions.
 
 ## Quick Start
 1. **Fork this repository** so you have your own copy.
