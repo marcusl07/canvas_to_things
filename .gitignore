@@ -18,3 +18,4 @@ config/config.yml
 # Opencode harness files (leave local)
 opencode_memory.txt
 opencode_requirements_doc.txt
+AGENTS.md

@@ -56,18 +56,36 @@ class SMTPTransport:
     def send(self, message: EmailMessage) -> None:
         last_error: Optional[Exception] = None
         for attempt in range(1, self.retries + 1):
+            smtp = None
             try:
+                logger.debug("SMTP send attempt %s/%s: connecting to %s:%s", attempt, self.retries, self.host, self.port)
                 context = create_default_context()
-                with SMTP(self.host, self.port, timeout=30) as smtp:
-                    smtp.starttls(context=context)
-                    smtp.login(self.username, self.password)
-                    smtp.send_message(message)
+                smtp = SMTP(self.host, self.port, timeout=30)
+                logger.debug("SMTP connection established, starting TLS")
+                smtp.starttls(context=context)
+                logger.debug("TLS established, logging in as %s", self.username)
+                smtp.login(self.username, self.password)
+                logger.debug("Login successful, sending message")
+                smtp.send_message(message)
+                logger.debug("Message sent successfully")
+                smtp.quit()
                 return
             except (OSError, SMTPException) as exc:
                 last_error = exc
+                if smtp:
+                    try:
+                        smtp.quit()
+                    except Exception:
+                        pass
                 logger.warning("SMTP send attempt %s/%s failed: %s", attempt, self.retries, exc)
                 if attempt < self.retries:
                     time.sleep(self.backoff_seconds * attempt)
+            finally:
+                if smtp:
+                    try:
+                        smtp.close()
+                    except Exception:
+                        pass
         raise RuntimeError(f"Failed to send email after {self.retries} attempts: {last_error}")
 
 
@@ -86,14 +104,20 @@ class Notifier:
     def notify(self, assignments: Iterable[Assignment]) -> NotificationResult:
         sent: List[str] = []
         skipped: List[str] = []
-        for assignment in assignments:
+        assignment_list = list(assignments)
+        total = len(assignment_list)
+        for idx, assignment in enumerate(assignment_list, 1):
             message = self._build_message(assignment)
             if self.settings.run.dry_run:
-                logger.info("[dry-run] Would send assignment %s", assignment.fingerprint())
+                logger.info("[dry-run] Would send assignment %s (%s/%s)", assignment.fingerprint(), idx, total)
                 skipped.append(assignment.fingerprint())
                 continue
+            logger.info("Sending assignment %s (%s/%s): %s", assignment.fingerprint(), idx, total, assignment.title)
             self.transport.send(message)
             sent.append(assignment.fingerprint())
+            # Small delay between emails to avoid rate limiting (except for last one)
+            if idx < total:
+                time.sleep(1.0)
         return NotificationResult(sent=sent, skipped=skipped)
 
     def _build_message(self, assignment: Assignment) -> EmailMessage:
