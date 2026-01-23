@@ -13,11 +13,13 @@ class DummyStore(state.StateStore):
     def __init__(self, initial: dict[str, str] | None = None) -> None:
         self._initial = dict(initial or {})
         self._data = dict(self._initial)
+        self._pending: List[dict] = []
         self.saved = False
         self.mark_calls: List[tuple[str, str]] = []
 
     def load(self) -> None:  # type: ignore[override]
         self._data = dict(self._initial)
+        self._pending = []
 
     def save(self) -> None:  # type: ignore[override]
         self.saved = True
@@ -29,6 +31,18 @@ class DummyStore(state.StateStore):
     def mark_notified(self, key: str, updated_at: str) -> None:  # type: ignore[override]
         self._data[key] = updated_at
         self.mark_calls.append((key, updated_at))
+
+    def get_pending(self) -> List[canvas_client.Assignment]:  # type: ignore[override]
+        return []
+
+    def add_pending(self, assignment: canvas_client.Assignment) -> None:  # type: ignore[override]
+        pass
+
+    def remove_pending(self, assignment: canvas_client.Assignment) -> None:  # type: ignore[override]
+        pass
+
+    def clear_pending(self) -> None:  # type: ignore[override]
+        pass
 
 
 class StubClient(canvas_client.CanvasClient):
@@ -48,9 +62,9 @@ class StubNotifier(notifier.Notifier):
     def notify(self, assignments: Iterable[canvas_client.Assignment]):  # type: ignore[override]
         if self.dry_run:
             self.skipped.extend(a.fingerprint() for a in assignments)
-            return notifier.NotificationResult(sent=[], skipped=list(self.skipped))
+            return notifier.NotificationResult(sent=[], skipped=list(self.skipped), failed=[])
         self.sent.extend(a.fingerprint() for a in assignments)
-        return notifier.NotificationResult(sent=list(self.sent), skipped=list(self.skipped))
+        return notifier.NotificationResult(sent=list(self.sent), skipped=list(self.skipped), failed=[])
 
 
 @pytest.fixture

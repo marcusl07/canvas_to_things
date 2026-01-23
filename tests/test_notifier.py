@@ -66,6 +66,7 @@ def test_notifier_formats_email_and_sends_via_transport() -> None:
     assert isinstance(result, NotificationResult)
     assert result.sent == ["1:5:2025-01-01T00:00:00Z"]
     assert result.skipped == []
+    assert result.failed == []
 
     assert len(transport.messages) == 1
     message = transport.messages[0]
@@ -105,4 +106,5 @@ def test_notifier_dry_run_skips_sending() -> None:
 
     assert result.sent == []
     assert result.skipped == ["1:5:2025-01-01T00:00:00Z"]
+    assert result.failed == []
     assert transport.messages == []

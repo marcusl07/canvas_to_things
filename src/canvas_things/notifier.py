@@ -31,6 +31,7 @@ class EmailTransport(Protocol):
 class NotificationResult:
     sent: List[str]
     skipped: List[str]
+    failed: List[Assignment]
 
 
 class SMTPTransport:
@@ -104,6 +105,7 @@ class Notifier:
     def notify(self, assignments: Iterable[Assignment]) -> NotificationResult:
         sent: List[str] = []
         skipped: List[str] = []
+        failed: List[Assignment] = []
         assignment_list = list(assignments)
         total = len(assignment_list)
         for idx, assignment in enumerate(assignment_list, 1):
@@ -113,12 +115,23 @@ class Notifier:
                 skipped.append(assignment.fingerprint())
                 continue
             logger.info("Sending assignment %s (%s/%s): %s", assignment.fingerprint(), idx, total, assignment.title)
-            self.transport.send(message)
-            sent.append(assignment.fingerprint())
+            try:
+                self.transport.send(message)
+                sent.append(assignment.fingerprint())
+            except RuntimeError as exc:
+                error_msg = str(exc).lower()
+                # Detect rate limiting: connection closed after retries
+                if "connection unexpectedly closed" in error_msg or "failed to send email after" in error_msg:
+                    logger.warning("Rate limited or connection error for assignment %s: %s", assignment.fingerprint(), exc)
+                    failed.append(assignment)
+                else:
+                    # Other errors - still add to failed but log differently
+                    logger.error("Failed to send assignment %s: %s", assignment.fingerprint(), exc)
+                    failed.append(assignment)
             # Small delay between emails to avoid rate limiting (except for last one)
             if idx < total:
                 time.sleep(1.0)
-        return NotificationResult(sent=sent, skipped=skipped)
+        return NotificationResult(sent=sent, skipped=skipped, failed=failed)
 
     def _build_message(self, assignment: Assignment) -> EmailMessage:
         subject = self.settings.email.subject_template.format(
