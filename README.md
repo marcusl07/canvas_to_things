@@ -14,14 +14,14 @@ Poll Canvas LMS for assignment updates and email them into Things 3 via Mail to 
    - `SMTP_USER` – email/username for SMTP auth
    - `SMTP_PASS` – SMTP password or app-specific password
 4. **Add your Canvas config as a single secret**:
-   - Copy the template below, replace course IDs/aliases with your own, then paste the entire YAML into a secret named `CANVAS_CONFIG_YAML`.
+   - Copy the template below, replace course IDs/aliases with your own, then paste the entire YAML into a secret named `CANVAS_CONFIG_YAML`. Set `include_description` to true if you want the assignment description in the notes.
 
 ```yaml
 canvas:
   base_url: ${CANVAS_BASE_URL}
   courses:
-    - id: 12345        # REQUIRED: replace with your Canvas course ID
-      alias: "MATH201" # REQUIRED: short label shown in Things
+    - id: 12345
+      alias: "MATH201"
       include_description: true
     - id: 67890
       alias: "HIST101"
