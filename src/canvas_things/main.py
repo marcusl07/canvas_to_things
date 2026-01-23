@@ -46,6 +46,16 @@ def poll(argv: Iterable[str] | None = None) -> int:
     store = state.StateStore(settings.run.state_file)
     store.load()
 
+    # Check Mail to Things 24-hour email limit at the start (early exit for efficiency)
+    if not settings.run.dry_run and not store.should_send_email(settings.run.timezone):
+        count = store.get_email_count()
+        logger.info(
+            "Mail to Things 24-hour limit reached (%s/95 emails). Skipping run until next day.",
+            count
+        )
+        store.save()  # Save any window reset that may have happened
+        return 0
+
     client = canvas_client.CanvasClient(settings)
     mailer = notifier.Notifier(settings)
 
@@ -60,23 +70,33 @@ def poll(argv: Iterable[str] | None = None) -> int:
         pending_filtered = _filter_assignments(pending, store, settings)
         if pending_filtered:
             logger.info("%s pending assignments after filtering for %s", len(pending_filtered), "all courses")
-            result = mailer.notify(pending_filtered)
             
-            if not settings.run.dry_run:
-                # Mark successfully sent pending assignments
-                for assignment in pending_filtered:
-                    if assignment.fingerprint() in result.sent:
-                        store.mark_notified(assignment.fingerprint(), assignment.updated_at)
-                        store.remove_pending(assignment)
-                    elif assignment in result.failed:
-                        # Keep in pending for next run
-                        failed_count += 1
+            # Check limit before processing pending
+            if not settings.run.dry_run and not store.should_send_email(settings.run.timezone):
+                logger.warning("Mail to Things limit reached. Storing %s pending assignments for next day.", len(pending_filtered))
+                # Already in pending, just save and continue
             else:
-                logger.info("Dry run enabled; not updating state for pending entries")
-            
-            newly_sent.extend(result.sent)
-            skipped_dry_run.extend(result.skipped)
-            failed_count += len(result.failed)
+                result = mailer.notify(
+                    pending_filtered,
+                    can_send=lambda: store.should_send_email(settings.run.timezone) if not settings.run.dry_run else True,
+                    on_sent=lambda: store.increment_email_count() if not settings.run.dry_run else None,
+                )
+                
+                if not settings.run.dry_run:
+                    # Mark successfully sent pending assignments
+                    for assignment in pending_filtered:
+                        if assignment.fingerprint() in result.sent:
+                            store.mark_notified(assignment.fingerprint(), assignment.updated_at)
+                            store.remove_pending(assignment)
+                        elif assignment.fingerprint() in [a.fingerprint() for a in result.failed]:
+                            # Keep in pending for next run (already in pending, no need to re-add)
+                            failed_count += 1
+                else:
+                    logger.info("Dry run enabled; not updating state for pending entries")
+                
+                newly_sent.extend(result.sent)
+                skipped_dry_run.extend(result.skipped)
+                failed_count += len(result.failed)
         else:
             # All pending were filtered out (past due or already notified), clear them
             if not settings.run.dry_run:
@@ -84,6 +104,13 @@ def poll(argv: Iterable[str] | None = None) -> int:
 
     # Process new assignments from Canvas
     for course in settings.canvas.courses:
+        # Check limit before fetching (early exit for efficiency)
+        if not settings.run.dry_run and not store.should_send_email(settings.run.timezone):
+            logger.warning("Mail to Things limit reached. Skipping remaining courses.")
+            # Store any remaining courses' assignments in pending (we'd need to fetch first, but that's wasteful)
+            # Instead, they'll be fetched on next run when limit resets
+            break
+        
         logger.info("Fetching assignments for %s (%s)", course.alias, course.course_id)
         assignments = client.fetch_assignments(course, per_page=args.per_page)
         to_send = _filter_assignments(assignments, store, settings)
@@ -91,8 +118,19 @@ def poll(argv: Iterable[str] | None = None) -> int:
         
         if not to_send:
             continue
+        
+        # Check limit again before sending this batch
+        if not settings.run.dry_run and not store.should_send_email(settings.run.timezone):
+            logger.warning("Mail to Things limit reached. Storing %s assignments in pending for next day.", len(to_send))
+            for assignment in to_send:
+                store.add_pending(assignment)
+            continue
             
-        result = mailer.notify(to_send)
+        result = mailer.notify(
+            to_send,
+            can_send=lambda: store.should_send_email(settings.run.timezone) if not settings.run.dry_run else True,
+            on_sent=lambda: store.increment_email_count() if not settings.run.dry_run else None,
+        )
 
         if not settings.run.dry_run:
             # Only mark successfully sent assignments
@@ -102,7 +140,7 @@ def poll(argv: Iterable[str] | None = None) -> int:
             ]
             store.bulk_mark((assignment.fingerprint(), assignment.updated_at) for assignment in successfully_sent)
             
-            # Add failed assignments to pending queue
+            # Add failed assignments to pending queue (includes limit-reached assignments)
             for assignment in result.failed:
                 store.add_pending(assignment)
                 failed_count += 1
@@ -113,7 +151,14 @@ def poll(argv: Iterable[str] | None = None) -> int:
         skipped_dry_run.extend(result.skipped)
 
     store.save()
-    logger.info("Done. Sent %s assignments (%s dry-run, %s failed/pending)", len(newly_sent), len(skipped_dry_run), failed_count)
+    email_count = store.get_email_count() if not settings.run.dry_run else 0
+    logger.info(
+        "Done. Sent %s assignments (%s dry-run, %s failed/pending). Email count: %s/95",
+        len(newly_sent),
+        len(skipped_dry_run),
+        failed_count,
+        email_count,
+    )
     return 0
 
 

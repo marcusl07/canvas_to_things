@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
+
+import pytz
 
 from .canvas_client import Assignment
 
@@ -16,11 +19,15 @@ class StateStore:
         self.path = path
         self._data: Dict[str, Any] = {}
         self._pending: List[Dict[str, Any]] = []
+        self._email_count: int = 0
+        self._email_window_start: datetime | None = None
 
     def load(self) -> None:
         if not self.path.exists():
             self._data = {}
             self._pending = []
+            self._email_count = 0
+            self._email_window_start = None
             return
         with self.path.open("r", encoding="utf-8") as fh:
             try:
@@ -38,11 +45,37 @@ class StateStore:
             # Legacy format: just a dict of fingerprints
             self._data = {str(k): str(v) for k, v in raw.items()}
             self._pending = []
+        
+        # Load email count tracking
+        self._email_count = raw.get("email_count", 0)
+        window_start_str = raw.get("email_window_start")
+        if window_start_str:
+            try:
+                self._email_window_start = datetime.fromisoformat(window_start_str)
+                if self._email_window_start.tzinfo is None:
+                    self._email_window_start = pytz.UTC.localize(self._email_window_start)
+            except (ValueError, AttributeError):
+                self._email_window_start = None
+        else:
+            self._email_window_start = None
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        window_start_str = None
+        if self._email_window_start:
+            window_start_str = self._email_window_start.isoformat()
         with self.path.open("w", encoding="utf-8") as fh:
-            json.dump({"notified": self._data, "pending": self._pending}, fh, indent=2, sort_keys=True)
+            json.dump(
+                {
+                    "notified": self._data,
+                    "pending": self._pending,
+                    "email_count": self._email_count,
+                    "email_window_start": window_start_str,
+                },
+                fh,
+                indent=2,
+                sort_keys=True,
+            )
 
     def should_notify(self, key: str, updated_at: str) -> bool:
         previous = self._data.get(key)
@@ -111,3 +144,38 @@ class StateStore:
             p for p in self._pending
             if f"{p['course_id']}:{p['assignment_id']}:{p['updated_at']}" != fingerprint
         ]
+
+    def get_email_count(self) -> int:
+        """Get current email count in the 24-hour window."""
+        return self._email_count
+
+    def increment_email_count(self) -> int:
+        """Increment email count and return new count."""
+        self._email_count += 1
+        return self._email_count
+
+    def reset_email_window(self) -> None:
+        """Reset email count and start a new 24-hour window."""
+        self._email_count = 0
+        self._email_window_start = datetime.now(pytz.UTC)
+
+    def should_send_email(self, timezone: str = "UTC") -> bool:
+        """Check if we can send emails (not at limit and window is valid)."""
+        now = datetime.now(pytz.timezone(timezone))
+        
+        # If no window started, start one
+        if self._email_window_start is None:
+            self._email_window_start = now.astimezone(pytz.UTC)
+            self._email_count = 0
+            return True
+        
+        # Convert window start to same timezone for comparison
+        window_start = self._email_window_start.astimezone(pytz.timezone(timezone))
+        
+        # Check if 24 hours have passed
+        if now - window_start >= timedelta(hours=24):
+            self.reset_email_window()
+            return True
+        
+        # Check if we're at the limit (stop at 95 for safety margin)
+        return self._email_count < 95

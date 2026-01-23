@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from smtplib import SMTP, SMTPException
 from ssl import create_default_context
-from typing import Iterable, List, Optional, Protocol
+from typing import Callable, Iterable, List, Optional, Protocol
 
 import logging
 import textwrap
@@ -102,13 +103,26 @@ class Notifier:
             )
         self.transport = transport
 
-    def notify(self, assignments: Iterable[Assignment]) -> NotificationResult:
+    def notify(
+        self,
+        assignments: Iterable[Assignment],
+        can_send: Callable[[], bool] | None = None,
+        on_sent: Callable[[], None] | None = None,
+    ) -> NotificationResult:
         sent: List[str] = []
         skipped: List[str] = []
         failed: List[Assignment] = []
         assignment_list = list(assignments)
         total = len(assignment_list)
         for idx, assignment in enumerate(assignment_list, 1):
+            # Check limit before sending (if callback provided)
+            if can_send is not None and not can_send():
+                logger.warning("Mail to Things limit reached. Storing remaining %s assignments in pending.", total - idx + 1)
+                # Store remaining assignments as failed (they'll be added to pending by caller)
+                for remaining in assignment_list[idx - 1:]:
+                    failed.append(remaining)
+                break
+            
             message = self._build_message(assignment)
             if self.settings.run.dry_run:
                 logger.info("[dry-run] Would send assignment %s (%s/%s)", assignment.fingerprint(), idx, total)
@@ -118,6 +132,9 @@ class Notifier:
             try:
                 self.transport.send(message)
                 sent.append(assignment.fingerprint())
+                # Call callback to track email count
+                if on_sent is not None:
+                    on_sent()
             except RuntimeError as exc:
                 error_msg = str(exc).lower()
                 # Detect rate limiting: connection closed after retries
@@ -128,9 +145,9 @@ class Notifier:
                     # Other errors - still add to failed but log differently
                     logger.error("Failed to send assignment %s: %s", assignment.fingerprint(), exc)
                     failed.append(assignment)
-            # Small delay between emails to avoid rate limiting (except for last one)
+            # Delay between emails to avoid rate limiting and spam filters (except for last one)
             if idx < total:
-                time.sleep(1.0)
+                time.sleep(2.0)  # Increased to 2s to reduce spam filter triggers
         return NotificationResult(sent=sent, skipped=skipped, failed=failed)
 
     def _build_message(self, assignment: Assignment) -> EmailMessage:
@@ -163,10 +180,15 @@ class Notifier:
         body = "\n".join(body_lines).strip()
 
         message = EmailMessage()
-        message["From"] = f"{self.settings.email.from_name} <{self.settings.smtp_user}>"
+        # Use simpler From format - just the email, no display name (can trigger spam filters)
+        message["From"] = self.settings.smtp_user
         message["To"] = self.settings.things_email
         message["Subject"] = subject
-        message.set_content(body)
+        message["Date"] = formatdate(localtime=True)
+        message["Message-ID"] = make_msgid(domain="canvas-things")
+        # Add User-Agent to look more legitimate
+        message["User-Agent"] = "Canvas-Things-Bridge/1.0"
+        message.set_content(body, charset="utf-8")
         return message
 
     def _trim_description(self, description: Optional[str]) -> Optional[str]:
