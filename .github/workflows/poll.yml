@@ -16,6 +16,17 @@ jobs:
       CANVAS_CONFIG_YAML: ${{ secrets.CANVAS_CONFIG_YAML }}
 
     steps:
+      - name: Debug workflow trigger
+        run: |
+          echo "Workflow triggered at: $(date -u)"
+          echo "UTC time: $(date -u +%H:%M)"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Event type: ${{ github.event.action }}"
+          echo "Schedule cron: 0 */2 * * *"
+          echo "Expected next runs (UTC): 00:00, 02:00, 04:00, 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00"
+          echo "Current UTC hour: $(date -u +%H)"
+          echo "Should run at even hours UTC (00, 02, 04, 06, 08, 10, 12, 14, 16, 18, 20, 22)"
+      
       - name: Checkout repository
         uses: actions/checkout@v4
 
