@@ -103,3 +103,5 @@ jobs:
           name: canvas-state
           path: data/state.json
           retention-days: 30
+
+# cron kick
