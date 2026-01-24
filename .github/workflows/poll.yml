@@ -1,0 +1,107 @@
+name: Canvas Things Poll
+# - cron: "0 */2 * * *"
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CANVAS_CONFIG_YAML: ${{ secrets.CANVAS_CONFIG_YAML }}
+
+    steps:
+      - name: Debug workflow trigger
+        run: |
+          echo "Workflow triggered at: $(date -u)"
+          echo "UTC time: $(date -u +%H:%M)"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Event type: ${{ github.event.action }}"
+          echo "Schedule cron: 0 */2 * * *"
+          echo "Expected next runs (UTC): 00:00, 02:00, 04:00, 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00"
+          echo "Current UTC hour: $(date -u +%H)"
+          echo "Should run at even hours UTC (00, 02, 04, 06, 08, 10, 12, 14, 16, 18, 20, 22)"
+      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Download previous state artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: canvas-state
+          path: data
+        continue-on-error: true
+
+      - name: Ensure state file exists
+        run: |
+          mkdir -p data
+          if [ ! -s data/state.json ]; then echo "{}" > data/state.json; fi
+
+      - name: Write Canvas config from secret
+        if: ${{ env.CANVAS_CONFIG_YAML != '' }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+
+          raw = os.environ.get("CANVAS_CONFIG_YAML", "")
+          if not raw.strip():
+              print("CANVAS_CONFIG_YAML is empty", file=sys.stderr)
+              sys.exit(1)
+
+          sanitized = raw.replace("\r\n", "\n").replace("\r", "\n").replace("\t", "    ")
+          path = Path("config/config.yml")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(sanitized, encoding="utf-8")
+
+          import yaml  # PyYAML is installed in previous step
+          try:
+              yaml.safe_load(sanitized)  # validate before continuing
+          except Exception as exc:
+              print("Failed to parse CANVAS_CONFIG_YAML: ", exc, file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Fallback to example config
+        if: ${{ env.CANVAS_CONFIG_YAML == '' }}
+        run: |
+          mkdir -p config
+          cp config/config.example.yml config/config.yml
+
+      - name: Run poller
+        env:
+          CANVAS_BASE_URL: ${{ secrets.CANVAS_BASE_URL }}
+          CANVAS_TOKEN: ${{ secrets.CANVAS_TOKEN }}
+          THINGS_EMAIL: ${{ secrets.THINGS_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+        run: |
+          python -m canvas_things.main --per-page 50
+
+      - name: Upload updated state artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-state
+          path: data/state.json
+          retention-days: 30
+
+# cron kick
