@@ -7,6 +7,7 @@ Formats assignments into plain-text emails and delivers them through SMTP to
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 from smtplib import SMTP, SMTPException
@@ -14,6 +15,7 @@ from ssl import create_default_context
 from typing import Callable, Iterable, List, Optional, Protocol
 
 import logging
+import pytz
 import textwrap
 import time
 
@@ -150,6 +152,27 @@ class Notifier:
                 time.sleep(2.0)  # Increased to 2s to reduce spam filter triggers
         return NotificationResult(sent=sent, skipped=skipped, failed=failed)
 
+    def _format_datetime(self, iso_string: str) -> str:
+        """Format an ISO 8601 datetime string to show both UTC (Zulu) and local time."""
+        try:
+            # Parse the ISO 8601 string (e.g., "2026-01-15T23:59:59Z")
+            dt_utc = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+            if dt_utc.tzinfo is None:
+                dt_utc = pytz.UTC.localize(dt_utc)
+            
+            # Convert to local timezone
+            tz = pytz.timezone(self.settings.run.timezone)
+            dt_local = dt_utc.astimezone(tz)
+            
+            # Format both times
+            utc_str = dt_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+            local_str = dt_local.strftime("%Y-%m-%d %H:%M:%S %Z")
+            
+            return f"{utc_str} ({local_str})"
+        except (ValueError, AttributeError) as exc:
+            logger.warning("Failed to parse datetime '%s': %s (using raw value)", iso_string, exc)
+            return iso_string
+
     def _build_message(self, assignment: Assignment) -> EmailMessage:
         subject = self.settings.email.subject_template.format(
             course_alias=assignment.course_alias,
@@ -160,11 +183,14 @@ class Notifier:
             f"Course: {assignment.course_alias}",
         ]
         if assignment.due_at:
-            body_lines.append(f"Due: {assignment.due_at}")
+            formatted_due = self._format_datetime(assignment.due_at)
+            body_lines.append(f"Due: {formatted_due}")
         if assignment.unlock_at:
-            body_lines.append(f"Opens: {assignment.unlock_at}")
+            formatted_unlock = self._format_datetime(assignment.unlock_at)
+            body_lines.append(f"Opens: {formatted_unlock}")
         if assignment.lock_at:
-            body_lines.append(f"Closes: {assignment.lock_at}")
+            formatted_lock = self._format_datetime(assignment.lock_at)
+            body_lines.append(f"Closes: {formatted_lock}")
         if assignment.points_possible is not None:
             body_lines.append(f"Points: {assignment.points_possible:g}")
         if assignment.submission_types:
