@@ -47,6 +47,9 @@ canvas:
 
 email:
   subject_template: "{course_alias}: {title}"
+
+run:
+  timezone: "America/Los_Angeles" # Your local timezone (e.g. America/New_York, Europe/London)
 ```
 
 ---
