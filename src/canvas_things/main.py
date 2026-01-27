@@ -33,12 +33,20 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run a single poll cycle (default)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Force dry-run mode (overrides config)",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
 def poll(argv: Iterable[str] | None = None) -> int:
     args = parse_args(argv)
     settings = config.load_config(args.config)
+
+    if args.dry_run:
+        settings.run.dry_run = True
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logger.info("Starting Canvas poll in %s (dry_run=%s)", settings.run.timezone, settings.run.dry_run)

@@ -2,11 +2,18 @@ name: Canvas Things Poll
 
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run in dry-run mode (no emails sent)"
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "* * * * *"
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   poll:
@@ -41,11 +48,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
+       - name: Find last successful run
+        id: get_run_id
+        run: |
+          # Get list of successful runs for this workflow, take the latest one
+          # We need to filter for the same workflow (Main) and status=success
+          RUN_ID=$(gh run list --workflow "poll.yml" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" == "null" ]; then
+            echo "No previous successful run found. This might be the first run."
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found last successful run ID: $RUN_ID"
+            echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Download previous state artifact
+        if: steps.get_run_id.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: canvas-state
           path: data
+          run-id: ${{ steps.get_run_id.outputs.run_id }}
+          github-token: ${{ github.token }}
         continue-on-error: true
 
       - name: Ensure state file exists
@@ -95,7 +122,11 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
         run: |
-          python -m canvas_things.main --per-page 50
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            ARGS="--dry-run"
+          fi
+          python -m canvas_things.main --per-page 50 $ARGS
 
       - name: Upload updated state artifact
         uses: actions/upload-artifact@v4

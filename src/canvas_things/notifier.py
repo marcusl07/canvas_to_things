@@ -127,7 +127,7 @@ class Notifier:
             
             message = self._build_message(assignment)
             if self.settings.run.dry_run:
-                logger.info("[dry-run] Would send assignment %s (%s/%s)", assignment.fingerprint(), idx, total)
+                logger.info("[dry-run] Would send assignment %s (%s/%s): %s", assignment.fingerprint(), idx, total, assignment.title)
                 skipped.append(assignment.fingerprint())
                 continue
             logger.info("Sending assignment %s (%s/%s): %s", assignment.fingerprint(), idx, total, assignment.title)
