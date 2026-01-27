@@ -1,4 +1,4 @@
-name: Canvas Things Poll Tester
+name: Canvas Things Poll
 
 on:
   workflow_dispatch:
