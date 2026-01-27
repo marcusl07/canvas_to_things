@@ -1,51 +1,72 @@
 # Canvas → Things Mail Bridge
 
-Poll Canvas LMS for assignment updates and email them into Things 3 via Mail to Things. Everything runs inside GitHub Actions.
+This tool automatically checks your Canvas courses for new assignments and emails them directly to your **Things 3** "Mail to Things" address. It runs entirely in the cloud (GitHub Actions), so you don't need to keep your computer on.
 
-## Quick Start
-1. **Fork this repository** so you have your own copy.
-2. **Enable GitHub Actions** (Actions tab → “I understand my workflows, go ahead and enable them”).
-3. **Add repository secrets** (Settings → Secrets and variables → Actions → “New repository secret”):
-   - `CANVAS_BASE_URL` – e.g. `https://school.instructure.com`
-   - `CANVAS_TOKEN` – Canvas API token with assignment access
-   - `THINGS_EMAIL` – your Mail to Things address (e.g. `name@things.email`)
-   - `SMTP_HOST` – outbound SMTP server (e.g. `smtp.gmail.com`)
-   - `SMTP_PORT` – usually `587`
-   - `SMTP_USER` – email/username for SMTP auth
-   - `SMTP_PASS` – SMTP password or app-specific password
-4. **Add your Canvas config as a single secret**:
-   - Copy the template below, replace course IDs/aliases with your own, then paste the entire YAML into a secret named `CANVAS_CONFIG_YAML`. Set `include_description` to true if you want the assignment description in the notes.
+## What it does
+- **Checks Canvas** every 2 hours for updates.
+- **Sends tasks** to your Things Inbox with the assignment name, due date, and description.
+- **Avoids duplicates**: It remembers what it has already sent.
+- **Respects Limits**: It sends a maximum of **95 emails per day** to stay safely under the Things Cloud limit (100/day). If you have more assignments than that, it queues them up for the next day automatically.
+
+---
+
+## Setup Guide
+
+### 1. Get your own copy
+Click **Fork** in the top-right corner of this page to create your own copy of this repository.
+
+### 2. Enable updates
+Go to the **Actions** tab in your new repository and click the big green button to enable workflows.
+
+### 3. Add your Secrets
+Go to **Settings** → **Secrets and variables** → **Actions** → **New repository secret**. You need to add these 5 secrets:
+
+| Secret Name | Value Example | Description |
+|---|---|---|
+| `CANVAS_BASE_URL` | `https://canvas.instructure.com` | The website address you use to log in to Canvas. |
+| `CANVAS_TOKEN` | *<your_token>* | Generate this in Canvas (Account → Settings → New Access Token). |
+| `THINGS_EMAIL` | `add-to-things-...@things.email` | Your unique email from Things 3 Settings → Things Cloud. |
+| `SMTP_USER` | `me@gmail.com` | The email address you want to send *from*. |
+| `SMTP_PASS` | *<app_password>* | Your email password. (For Gmail, use an [App Password](https://myaccount.google.com/apppasswords), not your login password). |
+
+> **Note**: For Gmail, `SMTP_HOST` is usually `smtp.gmail.com` and `SMTP_PORT` is `587`. If you use another provider, check their settings. You can add `SMTP_HOST` and `SMTP_PORT` as secrets too if they differ.
+
+### 4. Configure your Courses
+Create one last secret named `CANVAS_CONFIG_YAML`. Copy the text below, change the IDs to match your courses, and paste it in:
 
 ```yaml
 canvas:
-  base_url: ${CANVAS_BASE_URL}
   courses:
-    - id: 12345
-      alias: "MATH201"
+    # Find the ID in your Canvas course URL: /courses/123456
+    - id: 123456
+      alias: "Math 101"        # The name you want to see in Things
       include_description: true
-    - id: 67890
-      alias: "HIST101"
+    - id: 789012
+      alias: "History"
       include_description: false
 
 email:
-  from_name: "Canvas Bot"
-  subject_template: "{course_alias} – {title}"
-  include_description: true
-  max_description_chars: 500
-
-run:
-  timezone: "America/New_York"
-  dry_run: false
-  state_file: "data/state.json"
+  subject_template: "{course_alias}: {title}"
 ```
 
-5. **Trigger the workflow** (Actions tab → “Canvas Things Poll” → “Run workflow”).
-6. After the first successful run, the workflow will re-run automatically every 2 hours.
+---
+
+## How to use it
+
+### Automatic
+Once set up, it runs automatically **every 2 hours**. You don't need to do anything.
+
+### Manual / Testing
+You can force it to run anytime:
+1. Go to the **Actions** tab.
+2. Click **Canvas Things Poll** on the left.
+3. Click **Run workflow** on the right.
+
+**Dry Run Mode**:
+If you check the box **"Run in dry-run mode (no emails sent)"**, it will check for assignments and print what it *would* have done in the logs, but it **won't** actually email your Things account. This is great for testing your configuration safely.
+
+---
 
 ## Troubleshooting
-- **Workflow fails with “config/config.yml not found”** – ensure the `CANVAS_CONFIG_YAML` secret is set; the workflow writes the file from that secret each run.
-- **SMTP errors or 401/403** – double-check your secrets. Gmail users usually need an app password (2FA required).
-- **“Artifact not found” on first run** – harmless; the state file doesn’t exist yet. After a successful run, the download step will succeed.
-- **Need dry-run mode** – set `dry_run: true` in the YAML secret to test without sending emails.
-
-Contributions and bug reports are welcome. If you run into issues, open a GitHub issue with the workflow logs (redacting any secrets).
+- **Workflow failed?** Click on the failed run to see the logs. It will usually tell you if a secret is missing.
+- **No emails?** Check the "Run poller" step in the logs. If it says "Mail to Things limit reached", it's waiting until tomorrow to send more.
