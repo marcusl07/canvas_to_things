@@ -16,7 +16,7 @@ This tool automatically checks your Canvas courses for new assignments and email
 Click **Fork** in the top-right corner of this page to create your own copy of this repository.
 
 ### 2. Enable updates
-Go to the **Actions** tab in your new repository and click the big green button to enable workflows.
+Go to the **Actions** tab in your new repository and click the big green button to enable workflows. Then manually run the workflow once (Actions → Canvas Things Poll → Run workflow) to activate the schedule.
 
 ### 3. Add your Secrets
 Go to **Settings** → **Secrets and variables** → **Actions** → **New repository secret**. You need to add these 5 secrets:
