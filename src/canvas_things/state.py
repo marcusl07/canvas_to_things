@@ -18,6 +18,8 @@ class StateStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._data: Dict[str, Any] = {}
+        # Secondary index: "course_id:assignment_id" -> updated_at
+        self._by_id: Dict[str, str] = {}
         self._pending: List[Dict[str, Any]] = []
         self._email_count: int = 0
         self._email_window_start: datetime | None = None
@@ -25,6 +27,7 @@ class StateStore:
     def load(self) -> None:
         if not self.path.exists():
             self._data = {}
+            self._by_id = {}
             self._pending = []
             self._email_count = 0
             self._email_window_start = None
@@ -46,6 +49,9 @@ class StateStore:
             self._data = {str(k): str(v) for k, v in raw.items()}
             self._pending = []
         
+        # Build secondary index from loaded data
+        self._rebuild_index()
+        
         # Load email count tracking
         self._email_count = raw.get("email_count", 0)
         window_start_str = raw.get("email_window_start")
@@ -58,6 +64,42 @@ class StateStore:
                 self._email_window_start = None
         else:
             self._email_window_start = None
+
+    def _rebuild_index(self) -> None:
+        """Rebuild the _by_id index from _data."""
+        self._by_id.clear()
+        for fingerprint, updated_at in self._data.items():
+            # Fingerprint format: course_id:assignment_id:updated_at
+            # We need to extract course_id:assignment_id
+            parts = fingerprint.split(":")
+            if len(parts) >= 2:
+                # The first two parts depend on how they are stored. 
+                # fingerprint() in canvas_client.py uses: f"{self.course_id}:{self.assignment_id}:{self.updated_at}"
+                # So parts[0] is course_id, parts[1] is assignment_id.
+                # HOWEVER, updated_at might contain colons (e.g. ISO 8601).
+                # So we should be careful.
+                # Actually, the fingerprint is DEFINED as including the updated_at at the end.
+                # But since updated_at is variable length/content, better to strip it?
+                # Wait, we have the value 'updated_at' stored in the dict value too.
+                # But the KEY in _data IS the fingerprint.
+                
+                # Let's try to reconstruct the ID key.
+                # Since assignment_id is the second part and course_id the first.
+                # And updated_at comes after.
+                # Safest way: standard fingerprint logic is course:assignment:updated_at.
+                # But we don't know where updated_at starts if it has colons.
+                # LUCKILY, updated_at in fingerprint usually matches the value stored.
+                # Let's rely on the fact that we can construct the ID key if we stripped the updated_at suffix?
+                # Actually, clearer approach: key = f"{course_id}:{assignment_id}"
+                # But we only have the combined string.
+                # Let's assume the first two tokens are course_id and assignment_id because they shouldn't contain colons.
+                cid, aid = parts[0], parts[1]
+                id_key = f"{cid}:{aid}"
+                
+                # Update index if this entry is newer than what we have
+                current_best = self._by_id.get(id_key)
+                if current_best is None or updated_at > current_best:
+                    self._by_id[id_key] = updated_at
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,10 +121,26 @@ class StateStore:
 
     def should_notify(self, key: str, updated_at: str) -> bool:
         previous = self._data.get(key)
-        return previous is None or updated_at > previous
+        # If strict match exists, no notify needed
+        if previous is not None and previous >= updated_at:
+            return False
+            
+        # Also need to check if we have seen this EXACT version (key includes timestamp generally)
+        # The key passed here is the fingerprint which INCLUDES updated_at.
+        # So "previous is None" is usually the check.
+        # But if we have entries, should_notify returns True if we haven't seen this key.
+        return previous is None
+
+    def is_known_assignment(self, course_id: int, assignment_id: int) -> bool:
+        """Check if we have ever seen this assignment ID, regardless of timestamp."""
+        return f"{course_id}:{assignment_id}" in self._by_id
 
     def mark_notified(self, key: str, updated_at: str) -> None:
         self._data[key] = updated_at
+        # Update index
+        parts = key.split(":")
+        if len(parts) >= 2:
+             self._by_id[f"{parts[0]}:{parts[1]}"] = updated_at
 
     def bulk_mark(self, entries: Iterable[tuple[str, str]]) -> None:
         for key, updated_at in entries:
@@ -107,6 +165,7 @@ class StateStore:
             "points_possible": assignment.points_possible,
             "submission_types": assignment.submission_types,
             "published": assignment.published,
+            "is_update_notification": assignment.is_update_notification,
         }
         self._pending.append(assignment_dict)
 
@@ -129,6 +188,7 @@ class StateStore:
                     points_possible=data.get("points_possible"),
                     submission_types=data.get("submission_types", []),
                     published=data.get("published", True),
+                    is_update_notification=data.get("is_update_notification", False),
                 )
             )
         return assignments
@@ -179,3 +239,4 @@ class StateStore:
         
         # Check if we're at the limit (stop at 95 for safety margin)
         return self._email_count < 95
+

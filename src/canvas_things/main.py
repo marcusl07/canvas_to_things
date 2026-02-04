@@ -186,6 +186,11 @@ def _filter_assignments(
         if not store.should_notify(key, assignment.updated_at):
             logger.debug("Skipping already notified assignment %s", key)
             continue
+
+        # Check if this is an update to a known assignment
+        if store.is_known_assignment(assignment.course_id, assignment.assignment_id):
+            assignment.is_update_notification = True
+            logger.info("Assignment %s identified as update", key)
         
         # Filter out past-due assignments
         if assignment.due_at:

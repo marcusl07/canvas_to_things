@@ -178,10 +178,16 @@ class Notifier:
             course_alias=assignment.course_alias,
             title=assignment.title,
         )
+        
         body_lines = [
             assignment.title,
             f"Course: {assignment.course_alias}",
         ]
+
+        if assignment.is_update_notification:
+            subject = f"[UPDATE] {subject}"
+            body_lines.insert(0, "** UPDATE **")
+
         if assignment.due_at:
             formatted_due = self._format_datetime(assignment.due_at)
             body_lines.append(f"Due: {formatted_due}")

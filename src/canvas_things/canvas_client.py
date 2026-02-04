@@ -33,6 +33,7 @@ class Assignment:
     points_possible: Optional[float]
     submission_types: List[str]
     published: bool
+    is_update_notification: bool = False
 
     def fingerprint(self) -> str:
         return f"{self.course_id}:{self.assignment_id}:{self.updated_at}"
