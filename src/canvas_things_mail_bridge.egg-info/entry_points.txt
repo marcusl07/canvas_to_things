@@ -1,0 +1,2 @@
+[console_scripts]
+canvas-things-local-sync = canvas_things.local_sync_main:main

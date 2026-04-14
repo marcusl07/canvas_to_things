@@ -15,6 +15,9 @@ deV = [
     "pytest>=8.3",
 ]
 
+[project.scripts]
+canvas-things-local-sync = "canvas_things.local_sync_main:main"
+
 [build-system]
 requires = ["setuptools>=67", "wheel"]
 build-backend = "setuptools.build_meta"

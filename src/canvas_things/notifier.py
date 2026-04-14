@@ -21,6 +21,13 @@ import time
 
 from . import config
 from .canvas_client import Assignment
+from .managed_notes import (
+    DUE_LINE_PREFIX,
+    MANAGED_NOTE_MARKER,
+    extract_legacy_due_date_text,
+    format_due_line,
+    format_managed_marker_line,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,10 +162,7 @@ class Notifier:
     def _format_datetime(self, iso_string: str) -> str:
         """Format an ISO 8601 datetime string to show both UTC (Zulu) and local time."""
         try:
-            # Parse the ISO 8601 string (e.g., "2026-01-15T23:59:59Z")
-            dt_utc = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
-            if dt_utc.tzinfo is None:
-                dt_utc = pytz.UTC.localize(dt_utc)
+            dt_utc = self._parse_iso_datetime(iso_string)
             
             # Convert to local timezone
             tz = pytz.timezone(self.settings.run.timezone)
@@ -171,6 +175,26 @@ class Notifier:
             return f"{utc_str} ({local_str})"
         except (ValueError, AttributeError) as exc:
             logger.warning("Failed to parse datetime '%s': %s (using raw value)", iso_string, exc)
+            return iso_string
+
+    def _parse_iso_datetime(self, iso_string: str) -> datetime:
+        """Parse an ISO 8601 string and ensure the result is timezone-aware."""
+        dt_utc = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+        if dt_utc.tzinfo is None:
+            dt_utc = pytz.UTC.localize(dt_utc)
+        return dt_utc
+
+    def _format_due_date(self, iso_string: str) -> str:
+        """Return the canonical YYYY-MM-DD due date for managed note parsing."""
+        try:
+            dt_utc = self._parse_iso_datetime(iso_string)
+            tz = pytz.timezone(self.settings.run.timezone)
+            return dt_utc.astimezone(tz).date().isoformat()
+        except (ValueError, AttributeError) as exc:
+            logger.warning("Failed to parse due date '%s': %s (using raw value)", iso_string, exc)
+            due_text = extract_legacy_due_date_text(iso_string)
+            if due_text is not None:
+                return due_text
             return iso_string
 
     def _build_message(self, assignment: Assignment) -> EmailMessage:
@@ -189,8 +213,8 @@ class Notifier:
             body_lines.insert(0, "** UPDATE **")
 
         if assignment.due_at:
-            formatted_due = self._format_datetime(assignment.due_at)
-            body_lines.append(f"Due: {formatted_due}")
+            body_lines.append(format_due_line(self._format_due_date(assignment.due_at)))
+            body_lines.append(f"Due At: {self._format_datetime(assignment.due_at)}")
         if assignment.unlock_at:
             formatted_unlock = self._format_datetime(assignment.unlock_at)
             body_lines.append(f"Opens: {formatted_unlock}")
@@ -207,7 +231,10 @@ class Notifier:
         description = self._trim_description(assignment.description)
         if description:
             body_lines.append("")
-            body_lines.append(description)
+            body_lines.append(self._sanitize_description_for_managed_note(description))
+
+        body_lines.append("")
+        body_lines.append(format_managed_marker_line())
 
         body = "\n".join(body_lines).strip()
 
@@ -231,3 +258,16 @@ class Notifier:
         if limit <= 0 or len(summary) <= limit:
             return summary
         return summary[: limit - 1] + "…"
+
+    def _sanitize_description_for_managed_note(self, description: str) -> str:
+        """Avoid reserved managed-note prefixes in copied freeform description text."""
+
+        sanitized_lines: list[str] = []
+        reserved_prefixes = (DUE_LINE_PREFIX, MANAGED_NOTE_MARKER)
+        for raw_line in description.splitlines():
+            stripped_line = raw_line.lstrip()
+            if stripped_line.startswith(reserved_prefixes):
+                sanitized_lines.append(f"- {stripped_line}")
+                continue
+            sanitized_lines.append(raw_line)
+        return "\n".join(sanitized_lines)
