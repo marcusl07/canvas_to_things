@@ -80,7 +80,7 @@ If you check the box **"Run in dry-run mode (no emails sent)"**, it will check f
 
 ## Local Deadline Sync Companion
 
-The local companion is optional and macOS-only. It runs on your Mac, reads your local Things database, and updates deadlines for Canvas-managed tasks. Setup always starts in `dry-run`; nothing writes to Things until you explicitly enable `apply`.
+The local companion runs on your Mac, reads your local Things database, and updates deadlines for Canvas-managed tasks. Setup always starts in `dry-run`; nothing writes to Things until you explicitly enable `apply`.
 
 ### Setup
 1. Copy `config/config.example.yml` to `config/config.yml` if you have not already, then fill in your normal Canvas/email settings.
