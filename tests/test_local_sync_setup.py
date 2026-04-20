@@ -213,6 +213,7 @@ local_sync:
         config_path=config_path,
         mode="dry-run",
         repo_root=tmp_path,
+        interval_seconds=86400,
         stdout_log_path=tmp_path / "logs" / "local_sync.out.log",
         stderr_log_path=tmp_path / "logs" / "local_sync.err.log",
     )
@@ -221,20 +222,19 @@ local_sync:
     enable_local_sync_apply.enable_automatic_writes(
         config_path=config_path,
         launch_agent_path=launch_agent_path,
-        stdout_log_path=tmp_path / "logs" / "local_sync.out.log",
-        stderr_log_path=tmp_path / "logs" / "local_sync.err.log",
     )
 
     config = read_yaml(config_path)
     plist = read_plist(launch_agent_path)
 
     assert config["local_sync"]["mode"] == "apply"
+    assert plist["StartInterval"] == 86400
     assert plist["ProgramArguments"][-1] == "--apply"
-    assert recorded_commands[0][0][:2] == ("launchctl", "bootout")
-    assert recorded_commands[1][0][:2] == ("launchctl", "bootstrap")
-    assert recorded_commands[2][0][-1] == "--apply"
-    assert recorded_commands[2][1] is not None
-    assert recorded_commands[2][1]["PYTHONPATH"].startswith(str((setup_local_sync.REPO_ROOT / "src").resolve()))
+    assert recorded_commands[0][0][-1] == "--apply"
+    assert recorded_commands[0][1] is not None
+    assert recorded_commands[0][1]["PYTHONPATH"].startswith(str((tmp_path / "src").resolve()))
+    assert recorded_commands[1][0][:2] == ("launchctl", "bootout")
+    assert recorded_commands[2][0][:2] == ("launchctl", "bootstrap")
 
 
 def test_enable_automatic_writes_requires_existing_launch_agent(tmp_path: Path):
