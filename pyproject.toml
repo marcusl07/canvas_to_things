@@ -17,6 +17,7 @@ deV = [
 
 [project.scripts]
 canvas-things-local-sync = "canvas_things.local_sync_main:main"
+canvas-things-local-sync-if-due = "canvas_things.local_sync_if_due_main:main"
 
 [build-system]
 requires = ["setuptools>=67", "wheel"]

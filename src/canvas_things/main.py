@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, List
 
@@ -78,7 +78,10 @@ def poll(argv: Iterable[str] | None = None) -> int:
         pending_filtered = _filter_assignments(pending, store, settings)
         if not settings.run.dry_run:
             for assignment in pending:
-                if _should_skip_undated_assignment(assignment, settings):
+                if _should_skip_undated_assignment(assignment, settings) or _is_past_due_assignment(
+                    assignment,
+                    settings,
+                ):
                     store.remove_pending(assignment)
         if pending_filtered:
             logger.info("%s pending assignments after filtering for %s", len(pending_filtered), "all courses")
@@ -181,7 +184,7 @@ def _filter_assignments(
 ) -> List[canvas_client.Assignment]:
     filtered: List[canvas_client.Assignment] = []
     tz = pytz.timezone(settings.run.timezone)
-    now = datetime.now(tz)
+    today = datetime.now(tz).date()
     
     for assignment in assignments:
         key = assignment.fingerprint()
@@ -195,26 +198,14 @@ def _filter_assignments(
             logger.info("Skipping undated assignment %s", key)
             continue
 
-        # Check if this is an update to a known assignment
+        if _is_past_due_assignment(assignment, settings, today=today):
+            logger.debug("Skipping past-due assignment %s (due: %s)", key, assignment.due_at)
+            continue
+
+        # Check if this is an update to a known assignment only after skip rules pass.
         if store.is_known_assignment(assignment.course_id, assignment.assignment_id):
             assignment.is_update_notification = True
             logger.info("Assignment %s identified as update", key)
-        
-        # Filter out past-due assignments
-        if assignment.due_at:
-            try:
-                # Parse Canvas ISO 8601 date (e.g., "2026-01-15T23:59:59Z")
-                due_date = datetime.fromisoformat(assignment.due_at.replace("Z", "+00:00"))
-                # Convert to configured timezone for comparison
-                if due_date.tzinfo is None:
-                    due_date = pytz.UTC.localize(due_date)
-                due_date = due_date.astimezone(tz)
-                
-                if due_date < now:
-                    logger.debug("Skipping past-due assignment %s (due: %s)", key, assignment.due_at)
-                    continue
-            except (ValueError, AttributeError) as exc:
-                logger.warning("Failed to parse due date for assignment %s: %s (including anyway)", key, exc)
         
         filtered.append(assignment)
     
@@ -226,6 +217,31 @@ def _should_skip_undated_assignment(
     settings: config.Settings,
 ) -> bool:
     return settings.run.skip_undated_assignments and assignment.due_at is None
+
+
+def _is_past_due_assignment(
+    assignment: canvas_client.Assignment,
+    settings: config.Settings,
+    *,
+    today: date | None = None,
+) -> bool:
+    if not assignment.due_at:
+        return False
+
+    tz = pytz.timezone(settings.run.timezone)
+    if today is None:
+        today = datetime.now(tz).date()
+
+    try:
+        due_datetime = datetime.fromisoformat(assignment.due_at.replace("Z", "+00:00"))
+        if due_datetime.tzinfo is None:
+            due_datetime = pytz.UTC.localize(due_datetime)
+        due_date = due_datetime.astimezone(tz).date()
+    except (ValueError, AttributeError) as exc:
+        logger.warning("Failed to parse due date for assignment %s: %s (including anyway)", assignment.fingerprint(), exc)
+        return False
+
+    return due_date < today
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry

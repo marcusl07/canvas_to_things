@@ -27,6 +27,7 @@ from .managed_notes import (
     extract_legacy_due_date_text,
     format_due_line,
     format_managed_marker_line,
+    format_weird_due_title_prefix,
 )
 
 logger = logging.getLogger(__name__)
@@ -197,11 +198,29 @@ class Notifier:
                 return due_text
             return iso_string
 
+    def _weird_due_display_time(self, iso_string: str) -> str | None:
+        """Return HHMM when the local Canvas due time is not a normal 23:59 deadline."""
+
+        try:
+            dt_utc = self._parse_iso_datetime(iso_string)
+            tz = pytz.timezone(self.settings.run.timezone)
+            dt_local = dt_utc.astimezone(tz)
+            if dt_local.hour == 23 and dt_local.minute == 59:
+                return None
+            return dt_local.strftime("%H%M")
+        except (ValueError, AttributeError) as exc:
+            logger.warning("Failed to parse due time '%s': %s (skipping due-time title prefix)", iso_string, exc)
+            return None
+
     def _build_message(self, assignment: Assignment) -> EmailMessage:
         subject = self.settings.email.subject_template.format(
             course_alias=assignment.course_alias,
             title=assignment.title,
         )
+        if assignment.due_at:
+            weird_due_display_time = self._weird_due_display_time(assignment.due_at)
+            if weird_due_display_time is not None:
+                subject = f"{format_weird_due_title_prefix(weird_due_display_time)}{subject}"
         
         body_lines = [
             assignment.title,

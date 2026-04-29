@@ -337,6 +337,8 @@ def _format_mutation_actions(mutation: LocalSyncTaskMutation) -> str:
     actions: list[str] = []
     if mutation.update_due_date:
         actions.append(f"due_date={mutation.due_date.isoformat() if mutation.due_date else 'clear'}")
+    if mutation.update_title:
+        actions.append(f"title={mutation.new_title!r}")
     if mutation.project_target is not None:
         actions.append(
             f"project={mutation.project_target.name or mutation.project_target.project_id}"

@@ -19,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "config.yml"
 DEFAULT_EXAMPLE_CONFIG_PATH = REPO_ROOT / "config" / "config.example.yml"
 DEFAULT_START_INTERVAL_SECONDS = 2 * 60 * 60
+DEFAULT_CHECK_INTERVAL_SECONDS = 5 * 60
 LAUNCH_AGENT_LABEL = "com.canvas_to_things.local_sync"
 DEFAULT_LAUNCH_AGENT_PATH = Path.home() / "Library/LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
 DEFAULT_LOG_DIR = Path.home() / "Library/Logs/canvas_to_things"
@@ -65,7 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--interval-seconds",
         type=int,
         default=DEFAULT_START_INTERVAL_SECONDS,
-        help="How often the scheduled sync should run.",
+        help="Minimum elapsed seconds between completed sync runs.",
+    )
+    parser.add_argument(
+        "--check-interval-seconds",
+        type=int,
+        default=DEFAULT_CHECK_INTERVAL_SECONDS,
+        help="How often launchd should run the lightweight due check.",
     )
     parser.add_argument(
         "--no-prompt",
@@ -249,12 +256,34 @@ def build_sync_command(
     ]
 
 
+def build_sync_if_due_command(
+    *,
+    config_path: Path,
+    mode: str,
+    sync_interval_seconds: int,
+    repo_root: Path = REPO_ROOT,
+    python_executable: str | None = None,
+) -> list[str]:
+    python_bin = python_executable or sys.executable
+    return [
+        python_bin,
+        "-m",
+        "canvas_things.local_sync_if_due_main",
+        "--config",
+        str(config_path.resolve()),
+        "--sync-interval-seconds",
+        str(sync_interval_seconds),
+        "--dry-run" if mode == "dry-run" else "--apply",
+    ]
+
+
 def build_launch_agent_plist(
     *,
     config_path: Path,
     mode: str,
     repo_root: Path = REPO_ROOT,
     interval_seconds: int = DEFAULT_START_INTERVAL_SECONDS,
+    check_interval_seconds: int = DEFAULT_CHECK_INTERVAL_SECONDS,
     python_executable: str | None = None,
     log_dir: Path = DEFAULT_LOG_DIR,
     stdout_log_path: Path = DEFAULT_STDOUT_LOG_PATH,
@@ -263,19 +292,22 @@ def build_launch_agent_plist(
 ) -> dict[str, object]:
     if interval_seconds <= 0:
         raise LocalSyncSetupError("interval_seconds must be greater than 0.")
+    if check_interval_seconds <= 0:
+        raise LocalSyncSetupError("check_interval_seconds must be greater than 0.")
 
     env = dict(environment or os.environ)
     return {
         "Label": LAUNCH_AGENT_LABEL,
-        "ProgramArguments": build_sync_command(
+        "ProgramArguments": build_sync_if_due_command(
             config_path=config_path,
             mode=mode,
+            sync_interval_seconds=interval_seconds,
             repo_root=repo_root,
             python_executable=python_executable,
         ),
         "WorkingDirectory": str(repo_root.resolve()),
         "RunAtLoad": True,
-        "StartInterval": interval_seconds,
+        "StartInterval": check_interval_seconds,
         "StandardOutPath": str(stdout_log_path),
         "StandardErrorPath": str(stderr_log_path),
         "EnvironmentVariables": {
@@ -331,6 +363,7 @@ def install_local_sync_launch_agent(
     example_config_path: Path = DEFAULT_EXAMPLE_CONFIG_PATH,
     launch_agent_path: Path = DEFAULT_LAUNCH_AGENT_PATH,
     interval_seconds: int = DEFAULT_START_INTERVAL_SECONDS,
+    check_interval_seconds: int = DEFAULT_CHECK_INTERVAL_SECONDS,
     repo_root: Path = REPO_ROOT,
     stdout_log_path: Path = DEFAULT_STDOUT_LOG_PATH,
     stderr_log_path: Path = DEFAULT_STDERR_LOG_PATH,
@@ -354,6 +387,7 @@ def install_local_sync_launch_agent(
         mode="dry-run",
         repo_root=repo_root,
         interval_seconds=interval_seconds,
+        check_interval_seconds=check_interval_seconds,
         stdout_log_path=stdout_log_path,
         stderr_log_path=stderr_log_path,
     )
@@ -375,6 +409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             example_config_path=args.example_config,
             launch_agent_path=args.launch_agent_path,
             interval_seconds=args.interval_seconds,
+            check_interval_seconds=args.check_interval_seconds,
             prompt_user=prompt_user,
         )
     except LocalSyncSetupError as exc:

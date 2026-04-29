@@ -87,6 +87,8 @@ If you check the box **"Run in dry-run mode (no emails sent)"**, it will check f
 
 The local companion runs on your Mac, reads your local Things database, and updates deadlines for Canvas-managed tasks. Setup always starts in `dry-run`; nothing writes to Things until you explicitly enable `apply`.
 
+If a Canvas assignment is due at a local time other than 23:59, the companion treats it as an early-warning deadline: a 17:00 due time becomes a Things deadline on the previous day and the task title is prefixed with `[DUE 1700]`. If Canvas later changes the assignment back to a normal 23:59 due time, the next sync removes the prefix and restores the deadline to the actual due date.
+
 ### Setup
 1. Copy `config/config.example.yml` to `config/config.yml` if you have not already, then fill in your normal Canvas/email settings.
 2. Run the guided installer:
@@ -120,6 +122,8 @@ python scripts/enable_local_sync_apply.py
 That switches the LaunchAgent to `apply` mode and runs one immediate sync.
 
 If you want setup to reuse the current `local_sync` settings without prompting, run `python scripts/setup_local_sync.py --no-prompt`.
+
+The installed LaunchAgent runs a lightweight due check every 5 minutes while your Mac is awake. Skipped checks are silent by default. A real sync runs only when the configured interval has elapsed, so opening your laptop after a missed interval catches up within about 5 minutes.
 
 ### Troubleshooting
 - Check `~/Library/Logs/canvas_to_things/local_sync.log` first for the run summary and task-level errors.

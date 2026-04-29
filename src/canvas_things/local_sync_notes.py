@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from .managed_notes import (
+    DueAtInfo,
     DUE_LINE_PREFIX,
     LEGACY_DUE_AT_PREFIX,
     MANAGED_NOTE_MARKER,
     extract_legacy_due_date_text,
     find_prefixed_note_lines,
+    parse_due_at_info,
 )
 
 
@@ -31,7 +33,11 @@ class ParsedTaskNote:
     managed: bool
     writable: bool
     due_date: date | None
+    effective_deadline_date: date | None
     due_text: str | None
+    due_at_info: DueAtInfo | None
+    weird_due_time: bool
+    weird_due_display_time: str | None
     marker_line_number: int | None
     due_line_number: int | None
     diagnostics: tuple[NoteDiagnostic, ...]
@@ -70,7 +76,11 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
                 managed=False,
                 writable=False,
                 due_date=None,
+                effective_deadline_date=None,
                 due_text=None,
+                due_at_info=None,
+                weird_due_time=False,
+                weird_due_display_time=None,
                 marker_line_number=None,
                 due_line_number=None,
                 diagnostics=tuple(diagnostics),
@@ -79,7 +89,11 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             managed=False,
             writable=False,
             due_date=None,
+            effective_deadline_date=None,
             due_text=None,
+            due_at_info=None,
+            weird_due_time=False,
+            weird_due_display_time=None,
             marker_line_number=None,
             due_line_number=None,
             diagnostics=(),
@@ -100,7 +114,11 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             managed=False,
             writable=False,
             due_date=None,
+            effective_deadline_date=None,
             due_text=None,
+            due_at_info=None,
+            weird_due_time=False,
+            weird_due_display_time=None,
             marker_line_number=marker_line_number,
             due_line_number=None,
             diagnostics=tuple(diagnostics),
@@ -118,7 +136,11 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             managed=True,
             writable=False,
             due_date=None,
+            effective_deadline_date=None,
             due_text=None,
+            due_at_info=None,
+            weird_due_time=False,
+            weird_due_display_time=None,
             marker_line_number=marker_line_number,
             due_line_number=None,
             diagnostics=tuple(diagnostics),
@@ -135,7 +157,11 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             managed=True,
             writable=False,
             due_date=None,
+            effective_deadline_date=None,
             due_text=None,
+            due_at_info=None,
+            weird_due_time=False,
+            weird_due_display_time=None,
             marker_line_number=marker_line_number,
             due_line_number=None,
             diagnostics=tuple(diagnostics),
@@ -156,13 +182,22 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             managed=True,
             writable=False,
             due_date=None,
+            effective_deadline_date=None,
             due_text=None,
+            due_at_info=None,
+            weird_due_time=False,
+            weird_due_display_time=None,
             marker_line_number=marker_line_number,
             due_line_number=due_line_number,
             diagnostics=tuple(diagnostics),
         )
 
-    effective_due_text = _prefer_local_due_text_from_due_at(lines, fallback_due_text=due_text)
+    due_at_info = _parse_due_at_info_from_lines(lines)
+    effective_due_text = (
+        due_at_info.due_date.isoformat()
+        if due_at_info is not None
+        else _prefer_local_due_text_from_due_at(lines, fallback_due_text=due_text)
+    )
 
     try:
         due_date = date.fromisoformat(effective_due_text)
@@ -179,17 +214,28 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             managed=True,
             writable=False,
             due_date=None,
+            effective_deadline_date=None,
             due_text=effective_due_text,
+            due_at_info=due_at_info,
+            weird_due_time=False,
+            weird_due_display_time=None,
             marker_line_number=marker_line_number,
             due_line_number=due_line_number,
             diagnostics=tuple(diagnostics),
         )
 
+    weird_due_time = due_at_info.is_weird_time if due_at_info is not None else False
+    effective_deadline_date = due_date - timedelta(days=1) if weird_due_time else due_date
+
     return ParsedTaskNote(
         managed=True,
         writable=True,
         due_date=due_date,
+        effective_deadline_date=effective_deadline_date,
         due_text=effective_due_text,
+        due_at_info=due_at_info,
+        weird_due_time=weird_due_time,
+        weird_due_display_time=due_at_info.display_time if weird_due_time and due_at_info is not None else None,
         marker_line_number=marker_line_number,
         due_line_number=due_line_number,
         diagnostics=tuple(diagnostics),
@@ -206,6 +252,15 @@ def _find_due_lines(lines: list[str]) -> list[tuple[int, str, str]]:
 
 def _find_due_at_lines(lines: list[str]) -> list[tuple[int, str, str]]:
     return find_prefixed_note_lines(lines, LEGACY_DUE_AT_PREFIX)
+
+
+def _parse_due_at_info_from_lines(lines: list[str]) -> DueAtInfo | None:
+    for _, _, stripped_due_at_line in _find_due_at_lines(lines):
+        due_at_text = stripped_due_at_line[len(LEGACY_DUE_AT_PREFIX) :].strip()
+        due_at_info = parse_due_at_info(due_at_text)
+        if due_at_info is not None:
+            return due_at_info
+    return None
 
 
 def _prefer_local_due_text_from_due_at(lines: list[str], *, fallback_due_text: str) -> str:

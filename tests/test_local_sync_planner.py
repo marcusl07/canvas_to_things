@@ -13,12 +13,15 @@ from canvas_things.local_sync_planner import (
 )
 from canvas_things.local_sync_things_db import ThingsTaskRecord
 
+PLAN_TODAY = date(2026, 4, 1)
+
 
 def make_task(
     *,
     uuid: str,
     title: str,
     note_due: str | None,
+    due_at_line: str | None = None,
     include_marker: bool = True,
     deadline_date: date | None = None,
     project_title: str | None = None,
@@ -26,6 +29,8 @@ def make_task(
     lines = [title]
     if note_due is not None:
         lines.append(f"Due: {note_due}")
+    if due_at_line is not None:
+        lines.append(f"Due At: {due_at_line}")
     if include_marker:
         lines.append("Canvas:")
     notes = "\n".join(lines)
@@ -53,7 +58,7 @@ def test_build_local_sync_write_plan_rejects_managed_candidate_cap_exceeded():
     )
 
     with pytest.raises(LocalSyncCandidateCapError, match="discovered 2 managed tasks"):
-        build_local_sync_write_plan(tasks, candidate_cap=1)
+        build_local_sync_write_plan(tasks, candidate_cap=1, today=PLAN_TODAY)
 
 
 def test_build_local_sync_write_plan_promotes_non_update_task_and_trashes_updates():
@@ -78,7 +83,12 @@ def test_build_local_sync_write_plan_promotes_non_update_task_and_trashes_update
         ),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200, move_to_project="School")
+    plan = build_local_sync_write_plan(
+        tasks,
+        candidate_cap=200,
+        move_to_project="School",
+        today=PLAN_TODAY,
+    )
 
     assert plan.managed_task_count == 3
     assert plan.writable_task_count == 3
@@ -124,7 +134,7 @@ def test_build_local_sync_write_plan_uses_note_due_dates_instead_of_current_thin
         ),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200)
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
     base_entry = entry_by_id(plan, "base")
 
     assert base_entry.classification == CLASSIFICATION_CANONICAL
@@ -139,6 +149,29 @@ def test_build_local_sync_write_plan_uses_note_due_dates_instead_of_current_thin
     assert update_entry.mutation.trash is True
 
 
+def test_build_local_sync_write_plan_ignores_past_due_updates():
+    tasks = (
+        make_task(
+            uuid="base",
+            title="History Essay",
+            note_due="2026-04-15",
+            deadline_date=date(2026, 4, 15),
+        ),
+        make_task(
+            uuid="past-update",
+            title="[UPDATE] History Essay",
+            note_due="2026-04-10",
+            deadline_date=date(2026, 4, 10),
+        ),
+    )
+
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=date(2026, 4, 12))
+
+    assert plan.managed_task_count == 1
+    assert [entry.candidate.task.uuid for entry in plan.entries] == ["base"]
+    assert plan.mutations == ()
+
+
 def test_build_local_sync_write_plan_keeps_latest_update_when_no_base_task_exists():
     tasks = (
         make_task(uuid="update-1", title="[UPDATE] Chem Lab", note_due="2026-04-11"),
@@ -150,7 +183,7 @@ def test_build_local_sync_write_plan_keeps_latest_update_when_no_base_task_exist
         ),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200)
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
 
     first_update_entry = entry_by_id(plan, "update-1")
     assert first_update_entry.classification == CLASSIFICATION_CANONICAL
@@ -173,7 +206,7 @@ def test_build_local_sync_write_plan_does_not_trash_non_update_duplicates():
         make_task(uuid="update", title="[UPDATE] Reading Response", note_due="2026-04-12"),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200)
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
 
     first_base_entry = entry_by_id(plan, "base-1")
     assert first_base_entry.classification == CLASSIFICATION_CANONICAL
@@ -212,7 +245,12 @@ def test_build_local_sync_write_plan_prefers_destination_project_non_update_as_p
         ),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200, move_to_project="School")
+    plan = build_local_sync_write_plan(
+        tasks,
+        candidate_cap=200,
+        move_to_project="School",
+        today=PLAN_TODAY,
+    )
 
     project_entry = entry_by_id(plan, "project-base")
     assert project_entry.classification == CLASSIFICATION_CANONICAL
@@ -249,7 +287,12 @@ def test_build_local_sync_write_plan_prefers_destination_project_update_when_onl
         ),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200, move_to_project="School")
+    plan = build_local_sync_write_plan(
+        tasks,
+        candidate_cap=200,
+        move_to_project="School",
+        today=PLAN_TODAY,
+    )
 
     project_entry = entry_by_id(plan, "update-project")
     assert project_entry.classification == CLASSIFICATION_CANONICAL
@@ -277,7 +320,7 @@ def test_build_local_sync_write_plan_orders_canonical_mutations_before_redundant
         ),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200)
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
 
     assert [entry.candidate.task.uuid for entry in plan.entries] == ["update", "base"]
     assert [mutation.task_id for mutation in plan.mutations] == ["base", "update"]
@@ -289,7 +332,12 @@ def test_build_local_sync_write_plan_keeps_malformed_due_tasks_as_diagnostics_on
         make_task(uuid="task-2", title="No Marker", note_due="2026-04-10", include_marker=False),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200, move_to_project="School")
+    plan = build_local_sync_write_plan(
+        tasks,
+        candidate_cap=200,
+        move_to_project="School",
+        today=PLAN_TODAY,
+    )
 
     assert plan.managed_task_count == 1
     assert plan.writable_task_count == 0
@@ -301,3 +349,72 @@ def test_build_local_sync_write_plan_keeps_malformed_due_tasks_as_diagnostics_on
     assert diagnostic_entry.canonical_task_id is None
     assert diagnostic_entry.mutation is None
     assert [diagnostic.code for diagnostic in diagnostic_entry.candidate.parsed_note.diagnostics] == ["malformed_due"]
+
+
+def test_build_local_sync_write_plan_shifts_weird_due_time_and_prefixes_title():
+    tasks = (
+        make_task(
+            uuid="task-1",
+            title="INF 141: Lab",
+            note_due="2026-04-20",
+            due_at_line="2026-04-21 00:00:00 UTC (2026-04-20 17:00:00 PDT)",
+            deadline_date=date(2026, 4, 20),
+        ),
+    )
+
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
+    entry = entry_by_id(plan, "task-1")
+
+    assert entry.planned_due_date == date(2026, 4, 19)
+    assert entry.mutation is not None
+    assert entry.mutation.update_due_date is True
+    assert entry.mutation.due_date == date(2026, 4, 19)
+    assert entry.mutation.update_title is True
+    assert entry.mutation.new_title == "[DUE 1700] INF 141: Lab"
+
+
+def test_build_local_sync_write_plan_removes_stale_weird_due_prefix_and_restores_deadline():
+    tasks = (
+        make_task(
+            uuid="task-1",
+            title="[DUE 1700] INF 141: Lab",
+            note_due="2026-04-20",
+            due_at_line="2026-04-21 06:59:59 UTC (2026-04-20 23:59:59 PDT)",
+            deadline_date=date(2026, 4, 19),
+        ),
+    )
+
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
+    entry = entry_by_id(plan, "task-1")
+
+    assert entry.planned_due_date == date(2026, 4, 20)
+    assert entry.mutation is not None
+    assert entry.mutation.update_due_date is True
+    assert entry.mutation.due_date == date(2026, 4, 20)
+    assert entry.mutation.update_title is True
+    assert entry.mutation.new_title == "INF 141: Lab"
+
+
+def test_build_local_sync_write_plan_groups_titles_with_due_prefix_after_update_prefix():
+    tasks = (
+        make_task(
+            uuid="base",
+            title="[DUE 1700] INF 141: Lab",
+            note_due="2026-04-20",
+            due_at_line="2026-04-21 00:00:00 UTC (2026-04-20 17:00:00 PDT)",
+            deadline_date=date(2026, 4, 19),
+        ),
+        make_task(
+            uuid="update",
+            title="[UPDATE] [DUE 1700] INF 141: Lab",
+            note_due="2026-04-20",
+            due_at_line="2026-04-21 00:00:00 UTC (2026-04-20 17:00:00 PDT)",
+            deadline_date=date(2026, 4, 19),
+        ),
+    )
+
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
+
+    assert entry_by_id(plan, "base").classification == CLASSIFICATION_CANONICAL
+    assert entry_by_id(plan, "update").classification == CLASSIFICATION_REDUNDANT_UPDATE
+    assert entry_by_id(plan, "update").canonical_task_id == "base"

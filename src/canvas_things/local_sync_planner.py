@@ -9,6 +9,7 @@ from typing import Iterable, Sequence
 from .local_sync_applescript import LocalSyncProjectTarget, LocalSyncTaskMutation
 from .local_sync_notes import ParsedTaskNote, parse_task_note
 from .local_sync_things_db import ThingsTaskRecord
+from .managed_notes import format_weird_due_title_prefix, strip_weird_due_title_prefix
 
 UPDATE_TITLE_PREFIX = "[UPDATE] "
 
@@ -68,13 +69,17 @@ def build_local_sync_write_plan(
     *,
     candidate_cap: int,
     move_to_project: str | None = None,
+    today: date | None = None,
 ) -> LocalSyncWritePlan:
     """Build the managed-task write plan for one discovery result."""
+
+    if today is None:
+        today = date.today()
 
     managed_candidates = tuple(
         candidate
         for candidate in (_build_managed_candidate(task) for task in tasks)
-        if candidate.parsed_note.managed
+        if candidate.parsed_note.managed and not _is_past_due_candidate(candidate, today=today)
     )
     if len(managed_candidates) > candidate_cap:
         raise LocalSyncCandidateCapError(
@@ -125,6 +130,10 @@ def _build_managed_candidate(task: ThingsTaskRecord) -> LocalSyncManagedTask:
     )
 
 
+def _is_past_due_candidate(candidate: LocalSyncManagedTask, *, today: date) -> bool:
+    return candidate.parsed_note.due_date is not None and candidate.parsed_note.due_date < today
+
+
 def _resolve_group_plans(
     writable_candidates: Sequence[LocalSyncManagedTask],
     *,
@@ -137,7 +146,11 @@ def _resolve_group_plans(
     canonical_due_dates: dict[str, date] = {}
     redundant_ids_to_canonical_ids: dict[str, str] = {}
     for group in grouped_candidates.values():
-        latest_due_date = max(candidate.parsed_note.due_date for candidate in group if candidate.parsed_note.due_date is not None)
+        latest_due_date = max(
+            candidate.parsed_note.effective_deadline_date
+            for candidate in group
+            if candidate.parsed_note.effective_deadline_date is not None
+        )
         primary_candidate = _choose_primary_canonical_candidate(
             group,
             destination_project_title=destination_project_title,
@@ -149,7 +162,7 @@ def _resolve_group_plans(
             for candidate in non_update_candidates:
                 if candidate.task.uuid == primary_candidate.task.uuid:
                     continue
-                canonical_due_dates[candidate.task.uuid] = candidate.parsed_note.due_date
+                canonical_due_dates[candidate.task.uuid] = candidate.parsed_note.effective_deadline_date
             for candidate in group:
                 if candidate.is_update_notification:
                     redundant_ids_to_canonical_ids[candidate.task.uuid] = primary_candidate.task.uuid
@@ -247,11 +260,13 @@ def _build_canonical_mutation(
     move_to_project: str | None,
 ) -> LocalSyncTaskMutation | None:
     update_due_date = candidate.task.deadline_date != planned_due_date
+    desired_title = _desired_task_title(candidate)
+    update_title = candidate.task.title != desired_title
     project_target = None
     if move_to_project is not None and candidate.task.project_title != move_to_project:
         project_target = LocalSyncProjectTarget(name=move_to_project)
 
-    if not update_due_date and project_target is None:
+    if not update_due_date and not update_title and project_target is None:
         return None
 
     return LocalSyncTaskMutation(
@@ -259,6 +274,8 @@ def _build_canonical_mutation(
         title=candidate.task.title,
         update_due_date=update_due_date,
         due_date=planned_due_date if update_due_date else None,
+        update_title=update_title,
+        new_title=desired_title if update_title else None,
         project_target=project_target,
     )
 
@@ -273,7 +290,16 @@ def normalize_managed_title(title: str) -> str:
     """Normalize an update task title to the canonical group title."""
 
     if is_update_notification_title(title):
-        return title[len(UPDATE_TITLE_PREFIX) :]
+        return strip_weird_due_title_prefix(title[len(UPDATE_TITLE_PREFIX) :])
+    return strip_weird_due_title_prefix(title)
+
+
+def _desired_task_title(candidate: LocalSyncManagedTask) -> str:
+    title = normalize_managed_title(candidate.task.title)
+    if candidate.parsed_note.weird_due_display_time is not None:
+        title = f"{format_weird_due_title_prefix(candidate.parsed_note.weird_due_display_time)}{title}"
+    if candidate.is_update_notification:
+        return f"{UPDATE_TITLE_PREFIX}{title}"
     return title
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from typing import Iterable, List
 
@@ -216,6 +217,61 @@ def test_poll_still_sends_dated_assignments_when_skipping_undated(
     assert exit_code == 0
     assert mailer.sent == [dated_assignment.fingerprint()]
     assert store.mark_calls == [(dated_assignment.fingerprint(), dated_assignment.updated_at)]
+
+
+def test_filter_assignments_ignores_updated_assignments_with_past_due_dates(
+    settings: config.Settings,
+    assignments,
+):
+    original = replace(
+        assignments[0],
+        updated_at="2025-01-01T00:00:00Z",
+        due_at="2000-01-01T23:59:00Z",
+    )
+    updated = replace(original, updated_at="2025-01-02T00:00:00Z")
+    store = DummyStore(initial={original.fingerprint(): original.updated_at})
+
+    filtered = main._filter_assignments([updated], store, settings)
+
+    assert filtered == []
+    assert updated.is_update_notification is False
+
+
+def test_past_due_filter_compares_calendar_due_date(
+    settings: config.Settings,
+    assignments,
+):
+    due_earlier_today = replace(assignments[0], due_at="2026-04-12T00:01:00Z")
+
+    assert main._is_past_due_assignment(
+        due_earlier_today,
+        settings,
+        today=date(2026, 4, 12),
+    ) is False
+
+
+def test_poll_removes_past_due_pending_assignments(
+    monkeypatch,
+    settings: config.Settings,
+    assignments,
+):
+    past_pending = replace(assignments[0], due_at="2000-01-01T23:59:00Z")
+    future_pending = replace(assignments[1], due_at="2999-05-01T00:00:00Z")
+    store = DummyStore(pending=[past_pending, future_pending])
+    client = StubClient([])
+    mailer = StubNotifier()
+
+    monkeypatch.setattr(config, "load_config", lambda path=None: settings)
+    monkeypatch.setattr(main.state, "StateStore", lambda path: store)
+    monkeypatch.setattr(main.canvas_client, "CanvasClient", lambda settings: client)
+    monkeypatch.setattr(main.notifier, "Notifier", lambda settings: mailer)
+
+    exit_code = main.poll([])
+
+    assert exit_code == 0
+    assert past_pending.fingerprint() in store.removed_pending
+    assert store.get_pending() == []
+    assert mailer.sent == [future_pending.fingerprint()]
 
 
 def test_poll_removes_undated_pending_assignments_when_configured(

@@ -46,7 +46,7 @@ def emitted_note_body(
         title="Project",
         html_url="https://canvas.example.com/a/5",
         updated_at="2025-01-01T00:00:00Z",
-        due_at="2026-04-15T00:00:00Z",
+        due_at="2026-04-15T23:59:59Z",
         lock_at=None,
         unlock_at=None,
         description=description,
@@ -149,7 +149,60 @@ Canvas:
     assert parsed.writable is True
     assert parsed.due_text == "2026-04-19"
     assert parsed.due_date == date(2026, 4, 19)
+    assert parsed.effective_deadline_date == date(2026, 4, 19)
+    assert parsed.weird_due_time is False
     assert parsed.diagnostics == ()
+
+
+def test_parse_task_note_marks_non_2359_due_at_as_weird_and_shifts_deadline() -> None:
+    parsed = parse_task_note(
+        """
+Homework
+Due: 2026-04-20
+Due At: 2026-04-21 00:00:00 UTC (2026-04-20 17:00:00 PDT)
+Canvas:
+"""
+    )
+
+    assert parsed.managed is True
+    assert parsed.writable is True
+    assert parsed.due_text == "2026-04-20"
+    assert parsed.due_date == date(2026, 4, 20)
+    assert parsed.effective_deadline_date == date(2026, 4, 19)
+    assert parsed.weird_due_time is True
+    assert parsed.weird_due_display_time == "1700"
+    assert parsed.diagnostics == ()
+
+
+def test_parse_task_note_treats_2359_without_seconds_as_normal() -> None:
+    parsed = parse_task_note(
+        """
+Homework
+Due: 2026-04-20
+Due At: 2026-04-21 06:59 UTC (2026-04-20 23:59 PDT)
+Canvas:
+"""
+    )
+
+    assert parsed.due_date == date(2026, 4, 20)
+    assert parsed.effective_deadline_date == date(2026, 4, 20)
+    assert parsed.weird_due_time is False
+
+
+def test_parse_task_note_does_not_treat_due_at_without_local_time_as_weird() -> None:
+    parsed = parse_task_note(
+        """
+Homework
+Due: 2026-04-20
+Due At: 2026-04-20 00:00:00 UTC
+Canvas:
+"""
+    )
+
+    assert parsed.due_date == date(2026, 4, 20)
+    assert parsed.effective_deadline_date == date(2026, 4, 20)
+    assert parsed.due_at_info is None
+    assert parsed.weird_due_time is False
 
 
 def test_parse_task_note_is_unmanaged_when_marker_is_missing():

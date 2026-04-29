@@ -84,6 +84,7 @@ def test_apply_task_mutations_runs_one_batch_and_parses_partial_failures():
     assert len(runner.calls) == 1
     assert results[0].success is True
     assert results[0].due_date_attempts == 1
+    assert results[0].title_attempts == 0
     assert results[0].project_attempts == 2
     assert results[1].success is False
     assert results[1].trash_attempts == 3
@@ -175,6 +176,8 @@ def test_build_apply_task_mutations_script_includes_retry_delay_and_uuid_trash_v
                 title='Essay "draft"',
                 update_due_date=True,
                 due_date=date(2026, 4, 18),
+                update_title=True,
+                new_title='[DUE 1700] Essay "draft"',
                 project_target=LocalSyncProjectTarget(project_id="project-1"),
                 trash=True,
             ),
@@ -194,7 +197,45 @@ def test_build_apply_task_mutations_script_includes_retry_delay_and_uuid_trash_v
     assert "set project of taskRef to targetProject" in script
     assert "move taskRef to targetProject" not in script
     assert 'set due date of taskRef to date "4/18/2026 00:00:00"' in script
+    assert 'set name of taskRef to "[DUE 1700] Essay \\"draft\\""' in script
+    assert 'if name of taskRef is "[DUE 1700] Essay \\"draft\\""' in script
     assert 'set inboxMatches to (every to do of list "Inbox" whose id is "task-2")' in script
+
+
+def test_parse_task_mutation_results_accepts_title_verification_fields():
+    expected = (
+        LocalSyncTaskMutation(
+            task_id="task-1",
+            title="Essay",
+            update_title=True,
+            new_title="[DUE 1700] Essay",
+        ),
+    )
+
+    results = parse_task_mutation_results(
+        """
+        [
+          {
+            "task_id": "task-1",
+            "title": "Essay",
+            "success": true,
+            "due_date_verified": false,
+            "due_date_attempts": 0,
+            "title_verified": true,
+            "title_attempts": 2,
+            "project_verified": false,
+            "project_attempts": 0,
+            "trash_verified": false,
+            "trash_attempts": 0,
+            "error": null
+          }
+        ]
+        """,
+        expected_mutations=expected,
+    )
+
+    assert results[0].title_verified is True
+    assert results[0].title_attempts == 2
 
 
 def test_build_apply_task_note_updates_script_handles_multiline_notes():

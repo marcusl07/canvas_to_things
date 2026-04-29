@@ -40,6 +40,8 @@ class LocalSyncTaskMutation:
     title: str
     update_due_date: bool = False
     due_date: date | None = None
+    update_title: bool = False
+    new_title: str | None = None
     project_target: LocalSyncProjectTarget | None = None
     move_to_inbox: bool = False
     trash: bool = False
@@ -52,9 +54,15 @@ class LocalSyncTaskMutation:
 
         if self.update_due_date is False and self.due_date is not None:
             raise ValueError("due_date requires update_due_date=True.")
+        if self.update_title is False and self.new_title is not None:
+            raise ValueError("new_title requires update_title=True.")
+        if self.update_title and self.new_title is None:
+            raise ValueError("update_title requires new_title.")
+        if self.new_title is not None:
+            object.__setattr__(self, "new_title", _require_text(self.new_title, field_name="new_title"))
         if self.project_target is not None and self.move_to_inbox:
             raise ValueError("project_target and move_to_inbox cannot both be set.")
-        if not any((self.update_due_date, self.project_target is not None, self.move_to_inbox, self.trash)):
+        if not any((self.update_due_date, self.update_title, self.project_target is not None, self.move_to_inbox, self.trash)):
             raise ValueError("LocalSyncTaskMutation requires at least one mutation.")
 
 
@@ -76,6 +84,8 @@ class LocalSyncTaskMutationResult:
     success: bool
     due_date_verified: bool
     due_date_attempts: int
+    title_verified: bool
+    title_attempts: int
     project_verified: bool
     project_attempts: int
     trash_verified: bool
@@ -247,13 +257,15 @@ def build_apply_task_mutations_script(mutations: Sequence[LocalSyncTaskMutation]
         f"    error \"Failed to verify project write after {VERIFY_ATTEMPTS} attempts.\"",
         "end verifyProjectAssignment",
         "",
-        "on buildResultJson(taskId, titleText, successFlag, dueVerified, dueAttempts, projectVerified, projectAttempts, trashVerified, trashAttempts, errorText)",
+        "on buildResultJson(taskId, titleText, successFlag, dueVerified, dueAttempts, titleVerified, titleAttempts, projectVerified, projectAttempts, trashVerified, trashAttempts, errorText)",
         "    return \"{\" & ¬",
         "        my jsonEscape(\"task_id\") & \":\" & my jsonEscape(taskId) & \",\" & ¬",
         "        my jsonEscape(\"title\") & \":\" & my jsonEscape(titleText) & \",\" & ¬",
         "        my jsonEscape(\"success\") & \":\" & my jsonBoolean(successFlag) & \",\" & ¬",
         "        my jsonEscape(\"due_date_verified\") & \":\" & my jsonBoolean(dueVerified) & \",\" & ¬",
         "        my jsonEscape(\"due_date_attempts\") & \":\" & (dueAttempts as text) & \",\" & ¬",
+        "        my jsonEscape(\"title_verified\") & \":\" & my jsonBoolean(titleVerified) & \",\" & ¬",
+        "        my jsonEscape(\"title_attempts\") & \":\" & (titleAttempts as text) & \",\" & ¬",
         "        my jsonEscape(\"project_verified\") & \":\" & my jsonBoolean(projectVerified) & \",\" & ¬",
         "        my jsonEscape(\"project_attempts\") & \":\" & (projectAttempts as text) & \",\" & ¬",
         "        my jsonEscape(\"trash_verified\") & \":\" & my jsonBoolean(trashVerified) & \",\" & ¬",
@@ -408,9 +420,11 @@ def parse_task_note_update_results(
 def _build_task_block(mutation: LocalSyncTaskMutation) -> list[str]:
     lines = [
         f"set dueAttempts to 0",
+        f"set titleAttempts to 0",
         f"set projectAttempts to 0",
         f"set trashAttempts to 0",
         f"set dueVerified to false",
+        f"set titleVerified to false",
         f"set projectVerified to false",
         f"set trashVerified to false",
         f"set errorText to missing value",
@@ -439,6 +453,27 @@ def _build_task_block(mutation: LocalSyncTaskMutation) -> list[str]:
                 "    end repeat",
                 "    if dueVerified is false then",
                 f"        error \"Failed to verify due date write after {VERIFY_ATTEMPTS} attempts.\"",
+                "    end if",
+            ]
+        )
+
+    if mutation.update_title:
+        title_expression = _apple_script_string(mutation.new_title or "")
+        lines.extend(
+            [
+                f"    repeat with attemptIndex from 1 to {VERIFY_ATTEMPTS}",
+                "        tell application \"Things3\"",
+                f"            set name of taskRef to {title_expression}",
+                f"            if name of taskRef is {title_expression} then",
+                "                set titleAttempts to attemptIndex as integer",
+                "                set titleVerified to true",
+                "                exit repeat",
+                "            end if",
+                "        end tell",
+                f"        if (attemptIndex as integer) < {VERIFY_ATTEMPTS} then delay {VERIFY_DELAY_SECONDS}",
+                "    end repeat",
+                "    if titleVerified is false then",
+                f"        error \"Failed to verify title write after {VERIFY_ATTEMPTS} attempts.\"",
                 "    end if",
             ]
         )
@@ -522,10 +557,10 @@ def _build_task_block(mutation: LocalSyncTaskMutation) -> list[str]:
             f"    set errorText to errorMessage & \" (\" & (errorNumber as text) & \")\"",
             "end try",
             "if errorText is not missing value then",
-            f"    copy my buildResultJson({_apple_script_string(mutation.task_id)}, {_apple_script_string(mutation.title)}, false, dueVerified, dueAttempts, projectVerified, projectAttempts, trashVerified, trashAttempts, errorText) to end of resultItems",
+            f"    copy my buildResultJson({_apple_script_string(mutation.task_id)}, {_apple_script_string(mutation.title)}, false, dueVerified, dueAttempts, titleVerified, titleAttempts, projectVerified, projectAttempts, trashVerified, trashAttempts, errorText) to end of resultItems",
             "    set errorText to missing value",
             "else",
-            f"    copy my buildResultJson({_apple_script_string(mutation.task_id)}, {_apple_script_string(mutation.title)}, true, dueVerified, dueAttempts, projectVerified, projectAttempts, trashVerified, trashAttempts, missing value) to end of resultItems",
+            f"    copy my buildResultJson({_apple_script_string(mutation.task_id)}, {_apple_script_string(mutation.title)}, true, dueVerified, dueAttempts, titleVerified, titleAttempts, projectVerified, projectAttempts, trashVerified, trashAttempts, missing value) to end of resultItems",
             "end if",
             "",
         ]
@@ -584,6 +619,10 @@ def _parse_result_entry(entry: object) -> LocalSyncTaskMutationResult:
         entry.get("due_date_verified"),
         field_name="due_date_verified",
     )
+    title_verified = _require_output_bool(
+        entry.get("title_verified", False),
+        field_name="title_verified",
+    )
     project_verified = _require_output_bool(
         entry.get("project_verified"),
         field_name="project_verified",
@@ -595,6 +634,10 @@ def _parse_result_entry(entry: object) -> LocalSyncTaskMutationResult:
     due_date_attempts = _require_output_attempts(
         entry.get("due_date_attempts"),
         field_name="due_date_attempts",
+    )
+    title_attempts = _require_output_attempts(
+        entry.get("title_attempts", 0),
+        field_name="title_attempts",
     )
     project_attempts = _require_output_attempts(
         entry.get("project_attempts"),
@@ -615,6 +658,8 @@ def _parse_result_entry(entry: object) -> LocalSyncTaskMutationResult:
         success=success,
         due_date_verified=due_date_verified,
         due_date_attempts=due_date_attempts,
+        title_verified=title_verified,
+        title_attempts=title_attempts,
         project_verified=project_verified,
         project_attempts=project_attempts,
         trash_verified=trash_verified,

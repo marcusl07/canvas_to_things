@@ -1,0 +1,116 @@
+
+
+**T201-a — Define the local-sync config and CLI contract**
+Add the v1 config surface for the local companion, including required top-level `version: 1`, CLI-over-config-over-default precedence, `--project` read scope, `--move-to-project` write destination, dry-run/apply mode selection, candidate-cap and timeout settings, and explicit exit-code semantics. Primary write files: `src/canvas_things/local_sync_config.py`, `src/canvas_things/local_sync_cli.py`, `config/config.example.yml`, `tests/test_local_sync_config.py`, `tests/test_local_sync_cli.py`.
+
+
+
+**T202-b — Implement local-sync log rotation and run logging**
+Add log-path handling for `~/Library/Logs/canvas_to_things/local_sync.log`, rotate before each run when the current file exceeds 5 MB, keep `.1` through `.5`, and expose a logger setup that the local-sync entrypoint can reuse without touching the existing mail-bridge logging. Primary write files: `src/canvas_things/local_sync_logging.py`, `tests/test_local_sync_logging.py`.
+
+
+
+**T202-a — Implement note marker and Due-line parsing**
+Parse the visible Canvas marker and Due line from task notes with the exact v1 rules: marker must be the last non-empty line, trailing blank lines are allowed, any non-empty content after the marker invalidates management, exactly one valid marker is required, malformed or multiple marker-like lines make the task unmanaged with diagnostics, and malformed or missing `Due:` lines keep the task managed but non-writable. Primary write files: `src/canvas_things/local_sync_notes.py`, `tests/test_local_sync_notes.py`.
+
+
+
+**T202-c — Implement lock-file and runtime timeout guards**
+Add the v1 lock lifecycle at `~/Library/Application Support/canvas_to_things/local_sync.lock`, including pid, process start timestamp, hostname, and config path; require hostname plus live pid plus non-older start time for an active lock; replace stale or unverifiable locks; and expose wall-clock timeout checks for pre-apply and between per-task result steps. Primary write files: `src/canvas_things/local_sync_runtime.py`, `tests/test_local_sync_runtime.py`.
+
+
+
+**T203-a — Implement read-only Things SQLite discovery and scope resolution**
+Build the read-only discovery layer against the Things SQLite store to query open tasks only, apply Inbox vs named-project scope rules, include project-heading descendants, fail on duplicate exact-title project matches, and isolate schema-dependent access behind one module. Primary write files: `src/canvas_things/local_sync_things_db.py`, `tests/test_local_sync_things_db.py`.
+
+
+
+**T203-b — Implement AppleScript mutation and per-task verification**
+Build the only write path via AppleScript with one invocation per run, per-task `try/on error` handling, immediate verification after each due-date write, project move, or trash mutation, up to 3 attempts with 0.5-second waits, UUID-based trash verification, and continued processing after task-level failures. Primary write files: `src/canvas_things/local_sync_applescript.py`, `tests/test_local_sync_applescript.py`.
+
+
+
+**T204-a — Implement managed-candidate classification and write-plan building**
+Take discovered open tasks through the fixed v1 pipeline: filter to exactly-one-valid-marker tasks, enforce the 200-task cap on the managed set, parse `Due:` lines, classify canonical vs redundant update tasks by parsed note dates rather than current Things due dates, keep malformed-due tasks as managed diagnostics only, and emit a write plan that mutates only due date, project membership, and redundant-update trash state. Primary write files: `src/canvas_things/local_sync_planner.py`, `tests/test_local_sync_planner.py`.
+
+
+
+**T205-a — Wire the end-to-end local-sync runner**
+Compose config loading, logging, locking, discovery, planning, dry-run/apply execution, timeout enforcement, partial-failure handling, and final summary reporting into one local-sync command without changing the existing mail-bridge behavior. This task should own the runtime mutation boundary and stop further processing when timeout is exceeded after partial completion. Primary write files: `src/canvas_things/local_sync_main.py`, `pyproject.toml`, `tests/test_local_sync_main.py`.
+
+
+
+**T206-a — Add guided setup and LaunchAgent installation in dry-run-first mode**
+Implement the local setup flow that installs the LaunchAgent in dry-run mode first, keeps scheduled runs dry-run indefinitely until explicitly enabled, and provides an `Enable automatic writes` step that flips config or LaunchAgent args to apply mode and runs one immediate test sync. Primary write files: `scripts/setup_local_sync.py`, `scripts/enable_local_sync_apply.py`, `tests/test_local_sync_setup.py`.
+
+
+
+**T207-a — Document setup, safety limits, and troubleshooting**
+Update the repo docs for the local companion: supported scopes, marker requirements, duplicate-project ambiguity failure, candidate-cap hard stop, stale-lock recovery, timeout behavior, dry-run-first setup, and the explicit apply-enablement step. Primary write files: `README.md`.
+
+
+
+**T208-a — Add black-box local-sync integration coverage**
+Add integration-style tests that exercise the full v1 behavior across config/version failures, open-task filtering, Inbox vs project resolution, duplicate project ambiguity, redundant update trash eligibility, delayed verification that settles within retries, partial batch failure continuation, trash verification by id, candidate-cap failure, and timeout before and during apply. Primary write files: `tests/test_local_sync_integration.py`.
+
+
+**T209-a — Lock the canonical Canvas-managed note contract**
+Define the exact note shape for Canvas-managed tasks so the mail bridge and local-sync companion share one source of truth. The contract should require exactly one machine-readable `Due: YYYY-MM-DD` line, exact trailing `Canvas:` marker as the last non-empty line, and reserved-prefix rules so freeform note content cannot accidentally create extra `Due:` or marker lines. Primary write files: `README.md`, note-contract tests.
+
+
+
+
+
+**T210-a — Extract shared managed-note formatting and parsing primitives**
+Create one shared module for managed-note constants and helper functions so the notifier and local-sync parser cannot drift again. Move the marker text, due-line formatting rules, and any escaping or normalization helpers behind that shared boundary. Primary write files: `src/canvas_things/managed_notes.py`, `src/canvas_things/notifier.py`, `src/canvas_things/local_sync_notes.py`, `tests/test_notifier.py`, `tests/test_local_sync_notes.py`.
+
+
+
+
+
+**T211-a — Update outgoing email note bodies to emit the canonical managed format**
+Change the mail-bridge formatter so new Mail-to-Things tasks are local-sync-compatible on arrival. Replace the current timestamped `Due:` line with one machine-readable `Due: YYYY-MM-DD` line, keep any human-readable timestamp metadata under non-conflicting labels such as `Due At:`, and append exact trailing `Canvas:` as the final non-empty line after any description content. Primary write files: `src/canvas_things/notifier.py`, `tests/test_notifier.py`.
+
+
+
+
+
+**T212-a — Add notifier-to-local-sync compatibility coverage**
+Add black-box tests that prove a note body emitted by the notifier is accepted by the local-sync parser and planner without manual edits. Cover normal assignments, update notifications, optional description content, and reserved-prefix edge cases where description text could otherwise collide with the managed-note contract. Primary write files: `tests/test_notifier.py`, `tests/test_local_sync_notes.py`, `tests/test_local_sync_integration.py`.
+
+
+
+
+
+**T213-a — Add one-time backfill for existing Mail-to-Things tasks**
+Build a dry-run/apply migration command that rewrites existing old-format Mail-to-Things note bodies into the canonical managed format so already-created Inbox tasks become manageable too. The backfill should update notes only, avoid changing titles or project placement, and reuse the canonical note contract rather than inventing a second conversion shape. Primary write files: `scripts/backfill_local_sync_notes.py`, `src/canvas_things/managed_notes.py`, `src/canvas_things/local_sync_applescript.py`, `tests/test_local_sync_applescript.py`, new backfill tests, `README.md`.
+
+
+
+
+
+**T214-a — Document future-task vs existing-task behavior and migration flow**
+Update the docs so users can understand the difference between the notifier fix for future tasks and the one-time backfill required for existing tasks. Document the old incompatible note shape, the new canonical managed-note shape, the dry-run/apply backfill workflow, and how to confirm success from the local-sync log output. Primary write files: `README.md`.
+
+
+**T215-a — Add narrow dual-scope discovery for Inbox syncs with `move_to_project`**
+Extend the Things discovery layer so `local_sync.project=None` plus `local_sync.move_to_project=<exact project title>` reads from exactly two scopes: Inbox and that one destination project, including headings in both scopes. Combine the two query result sets, fail with `LocalSyncThingsDBSchemaError` if the same task uuid appears in both sets, then sort the combined set once by `(lower(title), uuid)` before returning it. Keep existing Inbox-only and project-only behavior unchanged, and keep missing or ambiguous destination-project resolution as a hard precondition failure. Primary write files: `src/canvas_things/local_sync_things_db.py`, `tests/test_local_sync_things_db.py`.
+
+
+
+
+**T216-a — Implement cross-scope canonicalization and explicit mutation ordering**
+Update the planner to use the combined discovery metadata for normalized-title grouping and deterministic primary-canonical selection. Reuse the current exact normalization rule: strip one leading `"[UPDATE] "` prefix and otherwise compare titles byte-for-byte. For each group, prefer canonical tasks in this order: non-update in destination project, non-update in Inbox, update in destination project, update in Inbox; break ties by first candidate in the already-sorted combined list. The primary canonical task gets the family max due date; all other non-update canonical tasks keep their own parsed due dates; non-primary updates become trash-only redundant updates. Build `plan.entries` in candidate order, but build `plan.mutations` in two phases: all canonical mutations first in entry order, then all redundant-update trash mutations in entry order. Keep candidate-cap enforcement on the full discovered managed set before canonicalization, returning `PRECONDITION_ERROR` on overflow. Primary write files: `src/canvas_things/local_sync_planner.py`, `src/canvas_things/local_sync_main.py`, `tests/test_local_sync_planner.py`, `tests/test_local_sync_main.py`.
+
+
+
+
+**T217-a — Fix project assignment AppleScript and preserve strict apply order**
+Validate the correct Things AppleScript project-write contract before patching code by checking `sdef /Applications/Things3.app` and a disposable `osascript` experiment. Confirm both the supported project-assignment command shape and the return contract of `project of taskRef` for Inbox vs project tasks. Then replace the broken project move path with the validated write, keep retry-based verification by project id, and surface verification exhaustion as a per-task failure with existing partial-failure accounting. Preserve the runtime ordering contract by keeping `apply_task_mutations(plan.mutations)` as a single ordered batch, emitting AppleScript blocks in exact input order, and rejecting out-of-order result payloads. Primary write files: `src/canvas_things/local_sync_applescript.py`, `tests/test_local_sync_applescript.py`, `tests/test_local_sync_integration.py`.
+
+
+
+
+**T218-a — Document the new scope and add end-to-end regression coverage**
+Document the dual-scope Inbox behavior, exact title-normalization rule, duplicate-uuid invariant, candidate-cap semantics, strict apply-order contract, and hard-abort behavior for missing or ambiguous destination projects. Add black-box integration coverage for mixed Inbox plus destination-project families, zero-task destination projects, duplicate-uuid invariant failures, candidate-cap precondition failures, canonical-first mutation ordering, and rerun safety after partial failure leaves a redundant update untrashed. Primary write files: `README.md`, `tests/test_local_sync_integration.py`.
+

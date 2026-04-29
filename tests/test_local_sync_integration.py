@@ -36,6 +36,8 @@ from canvas_things.local_sync_things_db import (
 )
 from canvas_things.notifier import Notifier
 
+LOCAL_SYNC_TODAY = date(2026, 4, 1)
+
 
 class ListHandler(logging.Handler):
     def __init__(self) -> None:
@@ -270,6 +272,8 @@ def mutation_payload(mutation: LocalSyncTaskMutation, **overrides: object) -> di
         "success": True,
         "due_date_verified": mutation.update_due_date,
         "due_date_attempts": 1 if mutation.update_due_date else 0,
+        "title_verified": mutation.update_title,
+        "title_attempts": 1 if mutation.update_title else 0,
         "project_verified": mutation.project_target is not None or mutation.move_to_inbox,
         "project_attempts": 1 if mutation.project_target is not None or mutation.move_to_inbox else 0,
         "trash_verified": mutation.trash,
@@ -299,6 +303,14 @@ def install_main_integration(
     monkeypatch.setattr("canvas_things.local_sync_main.setup_local_sync_logger", lambda **kwargs: logger)
     monkeypatch.setattr("canvas_things.local_sync_main.local_sync_lock", fake_lock)
     monkeypatch.setattr(
+        "canvas_things.local_sync_main.build_local_sync_write_plan",
+        lambda tasks, **kwargs: build_local_sync_write_plan(
+            tasks,
+            **kwargs,
+            today=LOCAL_SYNC_TODAY,
+        ),
+    )
+    monkeypatch.setattr(
         "canvas_things.local_sync_main.discover_open_tasks",
         lambda project, move_to_project=None: real_discover_open_tasks(
             project,
@@ -327,20 +339,20 @@ def test_build_local_sync_write_plan_accepts_notifier_emitted_notes_without_manu
         notifier_task_record(
             uuid="base",
             title="Essay",
-            due_at="2026-04-10T00:00:00Z",
+            due_at="2026-04-10T23:59:59Z",
             description="Bring calculator\nDue: mention this in class",
             deadline_date=date(2026, 4, 8),
         ),
         notifier_task_record(
             uuid="update",
             title="Essay",
-            due_at="2026-04-12T00:00:00Z",
+            due_at="2026-04-12T23:59:59Z",
             description="Canvas: rubric link moved",
             is_update_notification=True,
         ),
     )
 
-    plan = build_local_sync_write_plan(tasks, candidate_cap=200)
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=LOCAL_SYNC_TODAY)
 
     base_entry = next(entry for entry in plan.entries if entry.candidate.task.uuid == "base")
     update_entry = next(entry for entry in plan.entries if entry.candidate.task.uuid == "update")

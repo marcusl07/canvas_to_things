@@ -18,12 +18,16 @@ from scripts.setup_local_sync import (  # noqa: E402
     DEFAULT_CONFIG_PATH,
     DEFAULT_LAUNCH_AGENT_PATH,
     LocalSyncSetupError,
+    build_sync_if_due_command,
     build_sync_command,
     reload_launch_agent,
     set_local_sync_mode,
     run_command,
     write_launch_agent_plist,
 )
+
+POST_ENABLE_SYNC_FAILURE_PREFIX = "Apply mode was enabled, but the immediate apply sync failed:"
+REPO_MARKER_PATH = Path("src") / "canvas_things"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,10 +61,21 @@ def enable_automatic_writes(
 
     existing_payload = load_launch_agent_plist(launch_agent_path)
     payload = build_apply_launch_agent_plist(existing_payload, config_path=config_path)
-    run_command(payload["ProgramArguments"], check=True, env=build_launch_agent_environment(payload))
     set_local_sync_mode(config_path, "apply")
     write_launch_agent_plist(launch_agent_path, payload)
     reload_launch_agent(launch_agent_path)
+    try:
+        run_command(
+            build_sync_command(
+                config_path=config_path,
+                mode="apply",
+                repo_root=Path(require_working_directory(payload)),
+            ),
+            check=True,
+            env=build_launch_agent_environment(payload),
+        )
+    except LocalSyncSetupError as exc:
+        raise LocalSyncSetupError(f"{POST_ENABLE_SYNC_FAILURE_PREFIX} {exc}") from exc
 
 
 def load_launch_agent_plist(path: Path) -> dict[str, Any]:
@@ -77,24 +92,65 @@ def build_apply_launch_agent_plist(
     *,
     config_path: Path,
 ) -> dict[str, object]:
+    working_directory = require_working_directory(payload)
+    require_program_arguments(payload)
+    validate_repo_root(working_directory)
+
+    updated_payload = dict(payload)
+    updated_payload["ProgramArguments"] = build_sync_if_due_command(
+        config_path=config_path,
+        mode="apply",
+        sync_interval_seconds=require_sync_interval_seconds(payload),
+        repo_root=Path(working_directory),
+    )
+    return updated_payload
+
+
+def require_working_directory(payload: Mapping[str, Any]) -> str:
     working_directory = payload.get("WorkingDirectory")
     if not isinstance(working_directory, str) or not working_directory.strip():
         raise LocalSyncSetupError("Installed LaunchAgent is missing WorkingDirectory.")
+    return working_directory
 
+
+def require_program_arguments(payload: Mapping[str, Any]) -> list[str]:
     program_arguments = payload.get("ProgramArguments")
     if not isinstance(program_arguments, list) or not program_arguments:
         raise LocalSyncSetupError("Installed LaunchAgent is missing ProgramArguments.")
     if not all(isinstance(argument, str) and argument for argument in program_arguments):
         raise LocalSyncSetupError("Installed LaunchAgent has invalid ProgramArguments.")
+    return program_arguments
 
-    updated_payload = dict(payload)
-    updated_payload["ProgramArguments"] = build_sync_command(
-        config_path=config_path,
-        mode="apply",
-        repo_root=Path(working_directory),
-        python_executable=program_arguments[0],
-    )
-    return updated_payload
+
+def require_sync_interval_seconds(payload: Mapping[str, Any]) -> int:
+    program_arguments = require_program_arguments(payload)
+    flag = "--sync-interval-seconds"
+    if flag not in program_arguments:
+        start_interval = payload.get("StartInterval")
+        if isinstance(start_interval, int) and start_interval > 0:
+            return start_interval
+        raise LocalSyncSetupError("Installed LaunchAgent is missing --sync-interval-seconds.")
+    index = program_arguments.index(flag)
+    if index + 1 >= len(program_arguments):
+        raise LocalSyncSetupError("Installed LaunchAgent has invalid --sync-interval-seconds.")
+    try:
+        interval_seconds = int(program_arguments[index + 1])
+    except ValueError as exc:
+        raise LocalSyncSetupError("Installed LaunchAgent has invalid --sync-interval-seconds.") from exc
+    if interval_seconds <= 0:
+        raise LocalSyncSetupError("Installed LaunchAgent has invalid --sync-interval-seconds.")
+    return interval_seconds
+
+
+def validate_repo_root(working_directory: str) -> Path:
+    repo_root = Path(working_directory)
+    if not repo_root.exists():
+        raise LocalSyncSetupError(f"Installed LaunchAgent WorkingDirectory does not exist: {repo_root}")
+    if not (repo_root / REPO_MARKER_PATH).is_dir():
+        raise LocalSyncSetupError(
+            f"Installed LaunchAgent WorkingDirectory is not a canvas_to_things repo root: {repo_root}"
+        )
+    return repo_root
 
 
 def build_launch_agent_environment(payload: Mapping[str, Any]) -> dict[str, str]:
@@ -120,7 +176,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             launch_agent_path=args.launch_agent_path,
         )
     except LocalSyncSetupError as exc:
-        print(f"Enable automatic writes failed: {exc}", file=sys.stderr)
+        message = str(exc)
+        if message.startswith(POST_ENABLE_SYNC_FAILURE_PREFIX):
+            print(message, file=sys.stderr)
+        else:
+            print(f"Enable automatic writes failed: {message}", file=sys.stderr)
         return 1
 
     print(f"Enabled apply mode in {args.launch_agent_path}.")

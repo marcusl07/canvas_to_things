@@ -4,13 +4,36 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import date, time
 
 MANAGED_NOTE_MARKER = "Canvas:"
 DUE_LINE_PREFIX = "Due:"
 COURSE_LINE_PREFIX = "Course:"
 LEGACY_DUE_AT_PREFIX = "Due At:"
+WEIRD_DUE_TITLE_RE = re.compile(r"^\[DUE (?P<time>\d{4})\]\s+")
 _LEGACY_DUE_DATE_RE = re.compile(r"^(?P<due_date>\d{4}-\d{2}-\d{2})(?:\b|T)")
 _LEGACY_LOCAL_DUE_DATE_RE = re.compile(r"\((?P<due_date>\d{4}-\d{2}-\d{2})(?:\b|T)")
+_LOCAL_DUE_AT_RE = re.compile(
+    r"\((?P<due_date>\d{4}-\d{2}-\d{2})\s+"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2})(?::(?P<second>\d{2}))?"
+)
+
+
+@dataclass(frozen=True)
+class DueAtInfo:
+    """Local date/time metadata parsed from a Due At note line."""
+
+    due_date: date
+    due_time: time
+
+    @property
+    def display_time(self) -> str:
+        return f"{self.due_time.hour:02d}{self.due_time.minute:02d}"
+
+    @property
+    def is_weird_time(self) -> bool:
+        return self.due_time.hour != 23 or self.due_time.minute != 59
 
 
 def normalize_note_line(raw_line: str) -> str:
@@ -34,6 +57,37 @@ def format_due_line(due_text: str) -> str:
 def format_managed_marker_line() -> str:
     """Return the exact managed-note marker line."""
     return MANAGED_NOTE_MARKER
+
+
+def format_weird_due_title_prefix(display_time: str) -> str:
+    """Return the visible Things title prefix for non-23:59 Canvas due times."""
+
+    return f"[DUE {display_time}] "
+
+
+def strip_weird_due_title_prefix(title: str) -> str:
+    """Strip one leading weird due-time prefix from a title fragment."""
+
+    return WEIRD_DUE_TITLE_RE.sub("", title, count=1)
+
+
+def parse_due_at_info(due_at_text: str) -> DueAtInfo | None:
+    """Parse local date/time metadata from the current Due At line format."""
+
+    match = _LOCAL_DUE_AT_RE.search(due_at_text.strip())
+    if match is None:
+        return None
+
+    try:
+        due_date = date.fromisoformat(match.group("due_date"))
+        due_time = time(
+            int(match.group("hour")),
+            int(match.group("minute")),
+            int(match.group("second") or "0"),
+        )
+    except ValueError:
+        return None
+    return DueAtInfo(due_date=due_date, due_time=due_time)
 
 
 def sanitize_freeform_note_line(raw_line: str) -> str:
@@ -137,6 +191,7 @@ def _split_note_header_and_tail(lines: Sequence[str]) -> tuple[list[str], list[s
 __all__ = [
     "COURSE_LINE_PREFIX",
     "DUE_LINE_PREFIX",
+    "DueAtInfo",
     "LEGACY_DUE_AT_PREFIX",
     "MANAGED_NOTE_MARKER",
     "extract_legacy_due_date_text",
@@ -144,8 +199,11 @@ __all__ = [
     "format_due_line",
     "format_managed_marker_line",
     "format_prefixed_note_line",
+    "format_weird_due_title_prefix",
     "normalize_note_line",
+    "parse_due_at_info",
     "rewrite_legacy_mail_to_things_note",
     "sanitize_freeform_note_line",
     "sanitize_freeform_note_lines",
+    "strip_weird_due_title_prefix",
 ]

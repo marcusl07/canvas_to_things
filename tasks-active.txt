@@ -1,0 +1,17 @@
+When a task is completed, run `scripts/archive_task.sh <TASK_ID>` using the full task ID (for example `T99-a`) to move it out of `tasks-active.txt` and append it to `tasks-archive.txt`.
+
+Tasks are grouped into parallel waves by numeric stem. Tasks that share the same numeric stem (for example `T99-a` and `T99-b`) are intended to be independently executable in parallel.
+
+Only put tasks in the same numeric wave if their primary file ownership is disjoint. If two tasks would mainly edit the same file, they must be placed in different waves.
+
+Tasks in the same numeric wave must have no dependency relationship. If task B requires task A's schema, helper, config shape, state format, CLI behavior, or shared model change, they must be placed in different waves.
+
+Primary file ownership means the full set of tracked files likely to be edited to complete the task, not just the task headline. In this repo that usually includes the implementation file under `src/canvas_things/`, the matching test file under `tests/`, and any shared config or documentation files touched by the change.
+
+If two tasks may both touch the same shared infrastructure file, such as `src/canvas_things/main.py`, `src/canvas_things/config.py`, `src/canvas_things/state.py`, `tests/conftest.py`, `pyproject.toml`, `README.md`, or `config/config.example.yml`, they are not parallel-safe and must be placed in different waves.
+
+Before starting a task, identify the expected write files. If another task in the same wave overlaps those files, stop and move one of the tasks to a different wave before implementation.
+
+Prefer completing the full current wave before starting the next numeric stem unless a section explicitly says otherwise.
+
+Do not leave completed tasks in `tasks-active.txt`.

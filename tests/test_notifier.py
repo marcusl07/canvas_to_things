@@ -52,7 +52,7 @@ def make_assignment(description: str | None = "Long description text") -> Assign
         title="Project",
         html_url="https://canvas.example.com/a/5",
         updated_at="2025-01-01T00:00:00Z",
-        due_at="2025-01-02T00:00:00Z",
+        due_at="2025-01-02T23:59:59Z",
         lock_at=None,
         unlock_at=None,
         description=description,
@@ -84,7 +84,7 @@ def test_notifier_formats_email_and_sends_via_transport() -> None:
     assert "CS: Project" == str(message["Subject"])
     lines = body_lines(message)
     assert format_due_line("2025-01-02") in lines
-    assert "Due At: 2025-01-02 00:00:00 UTC (2025-01-02 00:00:00 UTC)" in lines
+    assert "Due At: 2025-01-02 23:59:59 UTC (2025-01-02 23:59:59 UTC)" in lines
     assert "Submission: online_upload" in lines
     assert lines[-1] == format_managed_marker_line()
 
@@ -109,14 +109,41 @@ def test_notifier_uses_local_calendar_date_for_managed_due_line() -> None:
     transport = StubTransport()
     notifier = Notifier(settings=settings, transport=transport)
 
-    notifier.notify([make_assignment()])
+    assignment = make_assignment()
+    assignment.due_at = "2025-01-02T07:59:59Z"
+    notifier.notify([assignment])
 
     lines = body_lines(transport.messages[0])
     assert format_due_line("2025-01-01") in lines
-    assert "Due At: 2025-01-02 00:00:00 UTC (2025-01-01 16:00:00 PST)" in lines
+    assert "Due At: 2025-01-02 07:59:59 UTC (2025-01-01 23:59:59 PST)" in lines
 
     parsed = parse_task_note(transport.messages[0].get_content())
     assert parsed.due_text == "2025-01-01"
+
+
+def test_notifier_prefixes_weird_local_due_time_in_subject() -> None:
+    settings = make_settings(timezone="America/Los_Angeles")
+    transport = StubTransport()
+    notifier = Notifier(settings=settings, transport=transport)
+    assignment = make_assignment()
+    assignment.due_at = "2025-01-02T01:00:00Z"
+
+    notifier.notify([assignment])
+
+    assert str(transport.messages[0]["Subject"]) == "[DUE 1700] CS: Project"
+
+
+def test_notifier_places_weird_due_prefix_after_update_prefix() -> None:
+    settings = make_settings(timezone="America/Los_Angeles")
+    transport = StubTransport()
+    notifier = Notifier(settings=settings, transport=transport)
+    assignment = make_assignment()
+    assignment.due_at = "2025-01-02T01:00:00Z"
+    assignment.is_update_notification = True
+
+    notifier.notify([assignment])
+
+    assert str(transport.messages[0]["Subject"]) == "[UPDATE] [DUE 1700] CS: Project"
 
 
 def test_notifier_places_description_before_trailing_managed_marker() -> None:
