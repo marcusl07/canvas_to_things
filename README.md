@@ -21,17 +21,19 @@ Click **Fork** in the top-right corner of this page to create your own copy of t
 Go to the **Actions** tab in your new repository and click the big green button to enable workflows. Then manually run the workflow once (Actions → Canvas Things Poll → Run workflow) to activate the schedule.
 
 ### 3. Add your Secrets
-Go to **Settings** → **Secrets and variables** → **Actions** → **New repository secret**. You need to add these 5 secrets:
+Go to **Settings** → **Secrets and variables** → **Actions** → **New repository secret**. You need to add these 7 secrets:
 
 | Secret Name | Value Example | Description |
 |---|---|---|
 | `CANVAS_BASE_URL` | `https://canvas.instructure.com` | The website address you use to log in to Canvas. |
 | `CANVAS_TOKEN` | *<your_token>* | Generate this in Canvas (Account → Settings → New Access Token). |
 | `THINGS_EMAIL` | `add-to-things-...@things.email` | Your unique email from Things 3 Settings → Things Cloud. |
+| `SMTP_HOST` | `smtp.gmail.com` | Your email provider's SMTP server. |
+| `SMTP_PORT` | `587` | Your email provider's SMTP port. |
 | `SMTP_USER` | `me@gmail.com` | The email address you want to send *from*. |
 | `SMTP_PASS` | *<app_password>* | Your email password. (For Gmail, use an [App Password](https://myaccount.google.com/apppasswords), not your login password). |
 
-> **Note**: For Gmail, `SMTP_HOST` is usually `smtp.gmail.com` and `SMTP_PORT` is `587`. If you use another provider, check their settings. You can add `SMTP_HOST` and `SMTP_PORT` as secrets too if they differ.
+> **Note**: For Gmail, `SMTP_HOST` is usually `smtp.gmail.com` and `SMTP_PORT` is `587`. If you use another provider, check their SMTP settings.
 
 ### 4. Configure your Courses
 Create one last secret named `CANVAS_CONFIG_YAML`. Copy the text below, change the IDs to match your courses, and paste it in:
@@ -52,7 +54,10 @@ email:
 
 run:
   timezone: "America/Los_Angeles" # Your local timezone (e.g. America/New_York, Europe/London)
+  skip_undated_assignments: true  # Optional: do not import Canvas items with no due date
 ```
+
+Set `skip_undated_assignments` to `true` if you only want assignments with Canvas due dates imported into Things. Skipped undated assignments are not marked as notified, so they can still import later if Canvas adds a due date.
 
 ---
 

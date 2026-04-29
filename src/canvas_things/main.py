@@ -76,6 +76,10 @@ def poll(argv: Iterable[str] | None = None) -> int:
     if pending:
         logger.info("Processing %s pending assignments from previous run", len(pending))
         pending_filtered = _filter_assignments(pending, store, settings)
+        if not settings.run.dry_run:
+            for assignment in pending:
+                if _should_skip_undated_assignment(assignment, settings):
+                    store.remove_pending(assignment)
         if pending_filtered:
             logger.info("%s pending assignments after filtering for %s", len(pending_filtered), "all courses")
             
@@ -187,6 +191,10 @@ def _filter_assignments(
             logger.debug("Skipping already notified assignment %s", key)
             continue
 
+        if _should_skip_undated_assignment(assignment, settings):
+            logger.info("Skipping undated assignment %s", key)
+            continue
+
         # Check if this is an update to a known assignment
         if store.is_known_assignment(assignment.course_id, assignment.assignment_id):
             assignment.is_update_notification = True
@@ -211,6 +219,13 @@ def _filter_assignments(
         filtered.append(assignment)
     
     return filtered
+
+
+def _should_skip_undated_assignment(
+    assignment: canvas_client.Assignment,
+    settings: config.Settings,
+) -> bool:
+    return settings.run.skip_undated_assignments and assignment.due_at is None
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry

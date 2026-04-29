@@ -42,6 +42,7 @@ class RunConfig:
     timezone: str
     dry_run: bool
     state_file: Path
+    skip_undated_assignments: bool = False
 
 
 @dataclass
@@ -135,9 +136,30 @@ def _parse_email(email_data: Dict[str, Any]) -> EmailConfig:
 
 def _parse_run(run_data: Dict[str, Any]) -> RunConfig:
     timezone = run_data.get("timezone") or "UTC"
-    dry_run = bool(run_data.get("dry_run", False))
+    dry_run = _parse_bool(run_data.get("dry_run", False), field_name="run.dry_run")
+    skip_undated_assignments = _parse_bool(
+        run_data.get("skip_undated_assignments", False),
+        field_name="run.skip_undated_assignments",
+    )
     state_path_value = run_data.get("state_file") or "data/state.json"
-    return RunConfig(timezone=timezone, dry_run=dry_run, state_file=Path(state_path_value))
+    return RunConfig(
+        timezone=timezone,
+        dry_run=dry_run,
+        state_file=Path(state_path_value),
+        skip_undated_assignments=skip_undated_assignments,
+    )
+
+
+def _parse_bool(value: Any, *, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "1", "on"}:
+            return True
+        if normalized in {"false", "no", "0", "off"}:
+            return False
+    raise ConfigError(f"{field_name} must be a boolean.")
 
 
 def _resolve_placeholder(value: Optional[str], env_name: str) -> Optional[str]:

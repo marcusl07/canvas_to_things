@@ -23,6 +23,7 @@ run:
   timezone: "America/New_York"
   dry_run: false
   state_file: "data/state.json"
+  skip_undated_assignments: false
 
 local_sync:
   # Omit project to scan Inbox only. Set it to an exact Things project title

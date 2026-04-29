@@ -10,16 +10,23 @@ from canvas_things import canvas_client, config, main, notifier, state
 
 
 class DummyStore(state.StateStore):
-    def __init__(self, initial: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        initial: dict[str, str] | None = None,
+        pending: List[canvas_client.Assignment] | None = None,
+    ) -> None:
         self._initial = dict(initial or {})
         self._data = dict(self._initial)
-        self._pending: List[dict] = []
+        self._initial_pending = list(pending or [])
+        self._pending: List[canvas_client.Assignment] = list(self._initial_pending)
         self.saved = False
         self.mark_calls: List[tuple[str, str]] = []
+        self.removed_pending: List[str] = []
+        self.email_count = 0
 
     def load(self) -> None:  # type: ignore[override]
         self._data = dict(self._initial)
-        self._pending = []
+        self._pending = list(self._initial_pending)
 
     def save(self) -> None:  # type: ignore[override]
         self.saved = True
@@ -32,17 +39,32 @@ class DummyStore(state.StateStore):
         self._data[key] = updated_at
         self.mark_calls.append((key, updated_at))
 
+    def is_known_assignment(self, course_id: int, assignment_id: int) -> bool:  # type: ignore[override]
+        return any(key.startswith(f"{course_id}:{assignment_id}:") for key in self._data)
+
     def get_pending(self) -> List[canvas_client.Assignment]:  # type: ignore[override]
-        return []
+        return list(self._pending)
 
     def add_pending(self, assignment: canvas_client.Assignment) -> None:  # type: ignore[override]
-        pass
+        self._pending.append(assignment)
 
     def remove_pending(self, assignment: canvas_client.Assignment) -> None:  # type: ignore[override]
-        pass
+        fingerprint = assignment.fingerprint()
+        self.removed_pending.append(fingerprint)
+        self._pending = [item for item in self._pending if item.fingerprint() != fingerprint]
 
     def clear_pending(self) -> None:  # type: ignore[override]
-        pass
+        self._pending = []
+
+    def should_send_email(self, timezone: str = "UTC") -> bool:  # type: ignore[override]
+        return True
+
+    def increment_email_count(self) -> int:  # type: ignore[override]
+        self.email_count += 1
+        return self.email_count
+
+    def get_email_count(self) -> int:  # type: ignore[override]
+        return self.email_count
 
 
 class StubClient(canvas_client.CanvasClient):
@@ -59,11 +81,12 @@ class StubNotifier(notifier.Notifier):
         self.skipped: List[str] = []
         self.dry_run = dry_run
 
-    def notify(self, assignments: Iterable[canvas_client.Assignment]):  # type: ignore[override]
+    def notify(self, assignments: Iterable[canvas_client.Assignment], **kwargs):  # type: ignore[override]
+        assignment_list = list(assignments)
         if self.dry_run:
-            self.skipped.extend(a.fingerprint() for a in assignments)
+            self.skipped.extend(a.fingerprint() for a in assignment_list)
             return notifier.NotificationResult(sent=[], skipped=list(self.skipped), failed=[])
-        self.sent.extend(a.fingerprint() for a in assignments)
+        self.sent.extend(a.fingerprint() for a in assignment_list)
         return notifier.NotificationResult(sent=list(self.sent), skipped=list(self.skipped), failed=[])
 
 
@@ -77,7 +100,12 @@ def settings(tmp_path: Path) -> config.Settings:
         include_description=True,
         max_description_chars=500,
     )
-    run_cfg = config.RunConfig(timezone="UTC", dry_run=False, state_file=tmp_path / "state.json")
+    run_cfg = config.RunConfig(
+        timezone="UTC",
+        dry_run=False,
+        state_file=tmp_path / "state.json",
+        skip_undated_assignments=False,
+    )
     return config.Settings(
         canvas=canvas_cfg,
         email=email_cfg,
@@ -143,6 +171,74 @@ def test_poll_filters_assignments_and_updates_state(monkeypatch, settings: confi
     assert store.saved is True
     assert mailer.sent == [a.fingerprint() for a in assignments]
     assert store.mark_calls == [(a.fingerprint(), a.updated_at) for a in assignments]
+
+
+def test_poll_skips_undated_assignments_when_configured(
+    monkeypatch,
+    settings: config.Settings,
+    assignments,
+):
+    skip_settings = replace(settings, run=replace(settings.run, skip_undated_assignments=True))
+    store = DummyStore()
+    client = StubClient(assignments)
+    mailer = StubNotifier()
+
+    monkeypatch.setattr(config, "load_config", lambda path=None: skip_settings)
+    monkeypatch.setattr(main.state, "StateStore", lambda path: store)
+    monkeypatch.setattr(main.canvas_client, "CanvasClient", lambda settings: client)
+    monkeypatch.setattr(main.notifier, "Notifier", lambda settings: mailer)
+
+    exit_code = main.poll([])
+
+    assert exit_code == 0
+    assert mailer.sent == []
+    assert store.mark_calls == []
+
+
+def test_poll_still_sends_dated_assignments_when_skipping_undated(
+    monkeypatch,
+    settings: config.Settings,
+    assignments,
+):
+    dated_assignment = replace(assignments[0], due_at="2999-05-01T00:00:00Z")
+    skip_settings = replace(settings, run=replace(settings.run, skip_undated_assignments=True))
+    store = DummyStore()
+    client = StubClient([dated_assignment, assignments[1]])
+    mailer = StubNotifier()
+
+    monkeypatch.setattr(config, "load_config", lambda path=None: skip_settings)
+    monkeypatch.setattr(main.state, "StateStore", lambda path: store)
+    monkeypatch.setattr(main.canvas_client, "CanvasClient", lambda settings: client)
+    monkeypatch.setattr(main.notifier, "Notifier", lambda settings: mailer)
+
+    exit_code = main.poll([])
+
+    assert exit_code == 0
+    assert mailer.sent == [dated_assignment.fingerprint()]
+    assert store.mark_calls == [(dated_assignment.fingerprint(), dated_assignment.updated_at)]
+
+
+def test_poll_removes_undated_pending_assignments_when_configured(
+    monkeypatch,
+    settings: config.Settings,
+    assignments,
+):
+    skip_settings = replace(settings, run=replace(settings.run, skip_undated_assignments=True))
+    store = DummyStore(pending=[assignments[0]])
+    client = StubClient([])
+    mailer = StubNotifier()
+
+    monkeypatch.setattr(config, "load_config", lambda path=None: skip_settings)
+    monkeypatch.setattr(main.state, "StateStore", lambda path: store)
+    monkeypatch.setattr(main.canvas_client, "CanvasClient", lambda settings: client)
+    monkeypatch.setattr(main.notifier, "Notifier", lambda settings: mailer)
+
+    exit_code = main.poll([])
+
+    assert exit_code == 0
+    assert mailer.sent == []
+    assert store.removed_pending == [assignments[0].fingerprint()]
+    assert store._pending == []
 
 
 def test_poll_respects_dry_run(monkeypatch, settings: config.Settings, assignments):
