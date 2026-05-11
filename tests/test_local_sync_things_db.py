@@ -27,6 +27,7 @@ def create_db(tmp_path: Path, *, missing_columns: set[str] | None = None) -> Pat
         ("title", "TEXT"),
         ("notes", "TEXT"),
         ("deadline", "INTEGER"),
+        ("activation_date", "INTEGER"),
         ("project", "TEXT"),
         ("heading", "TEXT"),
     ]
@@ -52,6 +53,7 @@ def insert_task(
     trashed: int = 0,
     notes: str | None = None,
     deadline: int | None = None,
+    activation_date: int | None = None,
     project: str | None = None,
     heading: str | None = None,
 ) -> None:
@@ -59,10 +61,10 @@ def insert_task(
     try:
         connection.execute(
             """
-            INSERT INTO TMTask (uuid, type, status, trashed, title, notes, deadline, project, heading)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO TMTask (uuid, type, status, trashed, title, notes, deadline, activation_date, project, heading)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (uuid, type, status, trashed, title, notes, deadline, project, heading),
+            (uuid, type, status, trashed, title, notes, deadline, activation_date, project, heading),
         )
         connection.commit()
     finally:
@@ -108,6 +110,7 @@ def test_discover_open_tasks_inbox_scope_only_returns_open_inbox_tasks(tmp_path)
         title="Inbox Task",
         notes="Canvas:\nDue: 2026-04-10",
         deadline=encode_deadline(date(2026, 4, 10)),
+        activation_date=encode_deadline(date(2026, 4, 9)),
     )
     insert_task(db_path, uuid="headed-inbox-task", type=0, title="Headed Inbox", heading="orphan-heading")
     insert_task(db_path, uuid="project-row", type=1, title="Assignments")
@@ -123,6 +126,8 @@ def test_discover_open_tasks_inbox_scope_only_returns_open_inbox_tasks(tmp_path)
     inbox_task = next(task for task in result.tasks if task.uuid == "inbox-task")
     assert inbox_task.deadline_value == encode_deadline(date(2026, 4, 10))
     assert inbox_task.deadline_date == date(2026, 4, 10)
+    assert inbox_task.activation_date_value == encode_deadline(date(2026, 4, 9))
+    assert inbox_task.activation_date == date(2026, 4, 9)
     assert inbox_task.project_uuid is None
     assert inbox_task.project_title is None
 

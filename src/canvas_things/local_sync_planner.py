@@ -281,13 +281,14 @@ def _build_canonical_mutation(
     move_to_project: str | None,
 ) -> LocalSyncTaskMutation | None:
     update_due_date = candidate.task.deadline_date != planned_dates.due_date
+    update_schedule_date = candidate.task.activation_date != planned_dates.schedule_date
     desired_title = _desired_task_title(candidate, planned_dates=planned_dates)
     update_title = candidate.task.title != desired_title
     project_target = None
     if move_to_project is not None and candidate.task.project_title != move_to_project:
         project_target = LocalSyncProjectTarget(name=move_to_project)
 
-    if not update_due_date and not update_title and project_target is None:
+    if not update_due_date and not update_schedule_date and not update_title and project_target is None:
         return None
 
     return LocalSyncTaskMutation(
@@ -295,6 +296,8 @@ def _build_canonical_mutation(
         title=candidate.task.title,
         update_due_date=update_due_date,
         due_date=planned_dates.due_date if update_due_date else None,
+        update_schedule_date=update_schedule_date,
+        schedule_date=planned_dates.schedule_date if update_schedule_date else None,
         update_title=update_title,
         new_title=desired_title if update_title else None,
         project_target=project_target,

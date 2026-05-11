@@ -118,6 +118,7 @@ def create_db(tmp_path: Path) -> Path:
                 title TEXT,
                 notes TEXT,
                 deadline INTEGER,
+                activation_date INTEGER,
                 project TEXT,
                 heading TEXT
             )
@@ -137,6 +138,7 @@ def insert_task(
     title: str,
     notes: str | None = None,
     deadline: int | None = None,
+    activation_date: int | None = None,
     project: str | None = None,
     heading: str | None = None,
     status: int = 0,
@@ -146,10 +148,10 @@ def insert_task(
     try:
         connection.execute(
             """
-            INSERT INTO TMTask (uuid, type, status, trashed, title, notes, deadline, project, heading)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO TMTask (uuid, type, status, trashed, title, notes, deadline, activation_date, project, heading)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (uuid, task_type, status, trashed, title, notes, deadline, project, heading),
+            (uuid, task_type, status, trashed, title, notes, deadline, activation_date, project, heading),
         )
         connection.commit()
     finally:
@@ -246,6 +248,7 @@ def notifier_task_record(
     description: str | None = None,
     is_update_notification: bool = False,
     deadline_date: date | None = None,
+    activation_date: date | None = None,
 ) -> ThingsTaskRecord:
     message = build_notifier_message(
         title=title,
@@ -259,6 +262,8 @@ def notifier_task_record(
         notes=message.get_content(),
         deadline_value=None,
         deadline_date=deadline_date,
+        activation_date_value=None,
+        activation_date=activation_date,
         project_uuid=None,
         project_title=None,
         heading_uuid=None,
@@ -272,6 +277,8 @@ def mutation_payload(mutation: LocalSyncTaskMutation, **overrides: object) -> di
         "success": True,
         "due_date_verified": mutation.update_due_date,
         "due_date_attempts": 1 if mutation.update_due_date else 0,
+        "schedule_verified": mutation.update_schedule_date,
+        "schedule_attempts": 1 if mutation.update_schedule_date else 0,
         "title_verified": mutation.update_title,
         "title_attempts": 1 if mutation.update_title else 0,
         "project_verified": mutation.project_target is not None or mutation.move_to_inbox,

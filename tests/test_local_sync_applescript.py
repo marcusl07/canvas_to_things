@@ -55,6 +55,8 @@ def test_apply_task_mutations_runs_one_batch_and_parses_partial_failures():
     "success": true,
     "due_date_verified": true,
     "due_date_attempts": 1,
+    "schedule_verified": false,
+    "schedule_attempts": 0,
     "project_verified": true,
     "project_attempts": 2,
     "trash_verified": false,
@@ -67,6 +69,8 @@ def test_apply_task_mutations_runs_one_batch_and_parses_partial_failures():
     "success": false,
     "due_date_verified": false,
     "due_date_attempts": 0,
+    "schedule_verified": false,
+    "schedule_attempts": 0,
     "project_verified": false,
     "project_attempts": 0,
     "trash_verified": false,
@@ -84,6 +88,7 @@ def test_apply_task_mutations_runs_one_batch_and_parses_partial_failures():
     assert len(runner.calls) == 1
     assert results[0].success is True
     assert results[0].due_date_attempts == 1
+    assert results[0].schedule_attempts == 0
     assert results[0].title_attempts == 0
     assert results[0].project_attempts == 2
     assert results[1].success is False
@@ -202,6 +207,38 @@ def test_build_apply_task_mutations_script_includes_retry_delay_and_uuid_trash_v
     assert 'set inboxMatches to (every to do of list "Inbox" whose id is "task-2")' in script
 
 
+def test_build_apply_task_mutations_script_clears_schedule_by_moving_to_anytime():
+    script = build_apply_task_mutations_script(
+        (
+            LocalSyncTaskMutation(
+                task_id="task-1",
+                title="Essay",
+                update_schedule_date=True,
+                schedule_date=None,
+            ),
+        )
+    )
+
+    assert 'move taskRef to list "Anytime"' in script
+    assert 'if activation date of taskRef is missing value then' in script
+
+
+def test_build_apply_task_mutations_script_sets_schedule_with_schedule_command():
+    script = build_apply_task_mutations_script(
+        (
+            LocalSyncTaskMutation(
+                task_id="task-1",
+                title="Essay",
+                update_schedule_date=True,
+                schedule_date=date(2026, 4, 18),
+            ),
+        )
+    )
+
+    assert 'schedule taskRef for date "4/18/2026 00:00:00"' in script
+    assert 'if my dateMatches((activation date of taskRef), date "4/18/2026 00:00:00") then' in script
+
+
 def test_parse_task_mutation_results_accepts_title_verification_fields():
     expected = (
         LocalSyncTaskMutation(
@@ -221,6 +258,8 @@ def test_parse_task_mutation_results_accepts_title_verification_fields():
             "success": true,
             "due_date_verified": false,
             "due_date_attempts": 0,
+            "schedule_verified": false,
+            "schedule_attempts": 0,
             "title_verified": true,
             "title_attempts": 2,
             "project_verified": false,
@@ -273,6 +312,8 @@ def test_parse_task_mutation_results_rejects_missing_or_misordered_results():
                 "success": true,
                 "due_date_verified": false,
                 "due_date_attempts": 0,
+                "schedule_verified": false,
+                "schedule_attempts": 0,
                 "project_verified": false,
                 "project_attempts": 0,
                 "trash_verified": true,
@@ -343,6 +384,8 @@ def test_parse_task_note_update_results_rejects_missing_or_misordered_results():
                 "success": true,
                 "due_date_verified": false,
                 "due_date_attempts": 0,
+                "schedule_verified": false,
+                "schedule_attempts": 0,
                 "project_verified": false,
                 "project_attempts": 0,
                 "trash_verified": true,
@@ -355,6 +398,8 @@ def test_parse_task_note_update_results_rejects_missing_or_misordered_results():
                 "success": true,
                 "due_date_verified": false,
                 "due_date_attempts": 0,
+                "schedule_verified": false,
+                "schedule_attempts": 0,
                 "project_verified": false,
                 "project_attempts": 0,
                 "trash_verified": true,
@@ -380,6 +425,8 @@ def test_parse_task_mutation_results_rejects_invalid_attempt_counts():
                 "success": true,
                 "due_date_verified": false,
                 "due_date_attempts": 4,
+                "schedule_verified": false,
+                "schedule_attempts": 0,
                 "project_verified": false,
                 "project_attempts": 0,
                 "trash_verified": true,

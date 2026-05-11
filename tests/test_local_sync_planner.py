@@ -24,6 +24,7 @@ def make_task(
     due_at_line: str | None = None,
     include_marker: bool = True,
     deadline_date: date | None = None,
+    activation_date: date | None = None,
     project_title: str | None = None,
 ) -> ThingsTaskRecord:
     lines = [title]
@@ -40,6 +41,8 @@ def make_task(
         notes=notes,
         deadline_value=None,
         deadline_date=deadline_date,
+        activation_date_value=None,
+        activation_date=activation_date,
         project_uuid="project-1" if project_title is not None else None,
         project_title=project_title,
         heading_uuid=None,
@@ -370,6 +373,8 @@ def test_build_local_sync_write_plan_preserves_weird_due_deadline_and_plans_sche
     assert entry.mutation is not None
     assert entry.mutation.update_due_date is False
     assert entry.mutation.due_date is None
+    assert entry.mutation.update_schedule_date is True
+    assert entry.mutation.schedule_date == date(2026, 4, 19)
     assert entry.mutation.update_title is True
     assert entry.mutation.new_title == "[DUE 1700 4/20] INF 141: Lab"
 
@@ -382,6 +387,7 @@ def test_build_local_sync_write_plan_removes_stale_weird_due_prefix_and_restores
             note_due="2026-04-20",
             due_at_line="2026-04-21 06:59:59 UTC (2026-04-20 23:59:59 PDT)",
             deadline_date=date(2026, 4, 19),
+            activation_date=date(2026, 4, 19),
         ),
     )
 
@@ -393,6 +399,8 @@ def test_build_local_sync_write_plan_removes_stale_weird_due_prefix_and_restores
     assert entry.mutation is not None
     assert entry.mutation.update_due_date is True
     assert entry.mutation.due_date == date(2026, 4, 20)
+    assert entry.mutation.update_schedule_date is True
+    assert entry.mutation.schedule_date is None
     assert entry.mutation.update_title is True
     assert entry.mutation.new_title == "INF 141: Lab"
 

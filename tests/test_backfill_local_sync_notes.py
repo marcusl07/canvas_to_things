@@ -15,6 +15,8 @@ def build_task(*, uuid: str, title: str, notes: str | None) -> ThingsTaskRecord:
         notes=notes,
         deadline_value=None,
         deadline_date=None,
+        activation_date_value=None,
+        activation_date=None,
         project_uuid=None,
         project_title=None,
         heading_uuid=None,

@@ -29,6 +29,7 @@ _REQUIRED_TASK_COLUMNS = frozenset(
         "title",
         "notes",
         "deadline",
+        "activation_date",
         "project",
         "heading",
     }
@@ -69,6 +70,8 @@ class ThingsTaskRecord:
     notes: str | None
     deadline_value: int | None
     deadline_date: date | None
+    activation_date_value: int | None
+    activation_date: date | None
     project_uuid: str | None
     project_title: str | None
     heading_uuid: str | None
@@ -242,6 +245,7 @@ def _load_open_tasks(
                 task.title,
                 task.notes,
                 task.deadline,
+                task.activation_date,
                 task.heading,
                 NULL AS project_uuid,
                 NULL AS project_title
@@ -286,6 +290,7 @@ def _load_open_tasks(
                 task.title,
                 task.notes,
                 task.deadline,
+                task.activation_date,
                 task.heading,
                 :project_uuid AS project_uuid,
                 :project_title AS project_title
@@ -350,12 +355,15 @@ def _merge_discovery_tasks(
 
 def _row_to_task(row: sqlite3.Row) -> ThingsTaskRecord:
     deadline_value = row["deadline"]
+    activation_date_value = row["activation_date"]
     return ThingsTaskRecord(
         uuid=row["uuid"],
         title=row["title"],
         notes=row["notes"],
         deadline_value=deadline_value,
         deadline_date=decode_things_deadline(deadline_value),
+        activation_date_value=activation_date_value,
+        activation_date=decode_things_deadline(activation_date_value),
         project_uuid=row["project_uuid"],
         project_title=row["project_title"],
         heading_uuid=row["heading"],
