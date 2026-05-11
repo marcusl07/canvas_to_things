@@ -195,6 +195,10 @@ def managed_note(due_text: str) -> str:
     return f"Due: {due_text}\nCanvas:"
 
 
+def managed_note_with_due_at(due_text: str, due_at_text: str) -> str:
+    return f"Due: {due_text}\nDue At: {due_at_text}\nCanvas:"
+
+
 def notifier_settings(*, include_description: bool = True) -> config.Settings:
     return config.Settings(
         canvas=config.CanvasConfig(base_url="https://canvas.example.com", courses=[]),
@@ -766,6 +770,97 @@ def test_main_apply_accepts_delayed_verification_that_settles_within_retries(mon
         in message
         for message in handler.messages
     )
+
+
+def test_main_apply_schedules_weird_due_time_as_early_warning(monkeypatch, tmp_path):
+    config_path = write_config(tmp_path, mode="apply")
+    db_path = create_db(tmp_path)
+    logger, handler = build_logger("tests.local_sync_integration.weird_due_time")
+
+    insert_task(
+        db_path,
+        uuid="task-1",
+        task_type=TASK_TYPE,
+        title="INF 141: Lab",
+        notes=managed_note_with_due_at(
+            "2026-05-11",
+            "2026-05-11 16:00:00 UTC (2026-05-11 09:00:00 PDT)",
+        ),
+        deadline=encode_deadline(date(2026, 5, 9)),
+    )
+
+    def execution_builder(script: str, mutations: Sequence[LocalSyncTaskMutation]) -> AppleScriptExecutionResult:
+        assert [mutation.task_id for mutation in mutations] == ["task-1"]
+        mutation = mutations[0]
+        assert mutation.update_due_date is True
+        assert mutation.due_date == date(2026, 5, 11)
+        assert mutation.update_schedule_date is True
+        assert mutation.schedule_date == date(2026, 5, 10)
+        assert mutation.update_title is True
+        assert mutation.new_title == "[DUE 0900 5/11] INF 141: Lab"
+        assert "schedule taskRef for date" in script
+        assert 'set name of taskRef to "[DUE 0900 5/11] INF 141: Lab"' in script
+        payload = [mutation_payload(mutation)]
+        return AppleScriptExecutionResult(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    install_main_integration(
+        monkeypatch,
+        db_path=db_path,
+        logger=logger,
+        execution_builder=execution_builder,
+    )
+
+    exit_code = main(["--config", str(config_path)])
+
+    assert exit_code == 0
+    assert any("Mutation result task_id=task-1" in message for message in handler.messages)
+    assert any("planned_mutations=1 mutation_results=1/1 successes=1 failures=0" in message for message in handler.messages)
+
+
+def test_main_apply_clears_stale_weird_due_schedule_and_title(monkeypatch, tmp_path):
+    config_path = write_config(tmp_path, mode="apply")
+    db_path = create_db(tmp_path)
+    logger, handler = build_logger("tests.local_sync_integration.stale_weird_due_time")
+
+    insert_task(
+        db_path,
+        uuid="task-1",
+        task_type=TASK_TYPE,
+        title="[DUE 0900 5/11] INF 141: Lab",
+        notes=managed_note_with_due_at(
+            "2026-05-11",
+            "2026-05-11 23:59:59 UTC (2026-05-11 23:59:59 UTC)",
+        ),
+        deadline=encode_deadline(date(2026, 5, 11)),
+        activation_date=encode_deadline(date(2026, 5, 10)),
+    )
+
+    def execution_builder(script: str, mutations: Sequence[LocalSyncTaskMutation]) -> AppleScriptExecutionResult:
+        assert [mutation.task_id for mutation in mutations] == ["task-1"]
+        mutation = mutations[0]
+        assert mutation.update_due_date is False
+        assert mutation.due_date is None
+        assert mutation.update_schedule_date is True
+        assert mutation.schedule_date is None
+        assert mutation.update_title is True
+        assert mutation.new_title == "INF 141: Lab"
+        assert 'move taskRef to list "Anytime"' in script
+        assert 'set name of taskRef to "INF 141: Lab"' in script
+        payload = [mutation_payload(mutation)]
+        return AppleScriptExecutionResult(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    install_main_integration(
+        monkeypatch,
+        db_path=db_path,
+        logger=logger,
+        execution_builder=execution_builder,
+    )
+
+    exit_code = main(["--config", str(config_path)])
+
+    assert exit_code == 0
+    assert any("Mutation result task_id=task-1" in message for message in handler.messages)
+    assert any("planned_mutations=1 mutation_results=1/1 successes=1 failures=0" in message for message in handler.messages)
 
 
 def test_main_apply_surfaces_project_write_verification_exhaustion_as_partial_failure(monkeypatch, tmp_path):

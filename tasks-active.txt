@@ -17,5 +17,3 @@ Prefer completing the full current wave before starting the next numeric stem un
 Do not leave completed tasks in `tasks-active.txt`.
 
 
-**T221-a — Document early-warning scheduling and add end-to-end weird due-time coverage**
-Update user-facing docs and black-box coverage for the new weird due-time behavior. Replace the old README claim that non-23:59 Canvas due times move the Things deadline to the previous day; document that the real Canvas due date remains the Things deadline, the previous day becomes the Things When/Today date, and the title prefix includes both local time and due date, e.g. `[DUE 0900 5/11]`. Add integration coverage proving a managed task due `2026-05-11 09:00` plans/applies deadline `2026-05-11`, schedule date `2026-05-10`, and the new prefix; add stale cleanup coverage proving a task that changes back to 23:59 removes the prefix and clears the schedule date. Keep docs concise and user-facing, not an internal architecture dump. Primary write files: `README.md`, `tests/test_local_sync_integration.py`, plus any narrow test fixture updates required by the new Things activation-date field.
