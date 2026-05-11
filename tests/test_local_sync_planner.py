@@ -351,7 +351,7 @@ def test_build_local_sync_write_plan_keeps_malformed_due_tasks_as_diagnostics_on
     assert [diagnostic.code for diagnostic in diagnostic_entry.candidate.parsed_note.diagnostics] == ["malformed_due"]
 
 
-def test_build_local_sync_write_plan_shifts_weird_due_time_and_prefixes_title():
+def test_build_local_sync_write_plan_preserves_weird_due_deadline_and_plans_schedule_date():
     tasks = (
         make_task(
             uuid="task-1",
@@ -365,12 +365,13 @@ def test_build_local_sync_write_plan_shifts_weird_due_time_and_prefixes_title():
     plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
     entry = entry_by_id(plan, "task-1")
 
-    assert entry.planned_due_date == date(2026, 4, 19)
+    assert entry.planned_due_date == date(2026, 4, 20)
+    assert entry.planned_schedule_date == date(2026, 4, 19)
     assert entry.mutation is not None
-    assert entry.mutation.update_due_date is True
-    assert entry.mutation.due_date == date(2026, 4, 19)
+    assert entry.mutation.update_due_date is False
+    assert entry.mutation.due_date is None
     assert entry.mutation.update_title is True
-    assert entry.mutation.new_title == "[DUE 1700] INF 141: Lab"
+    assert entry.mutation.new_title == "[DUE 1700 4/20] INF 141: Lab"
 
 
 def test_build_local_sync_write_plan_removes_stale_weird_due_prefix_and_restores_deadline():
@@ -388,6 +389,7 @@ def test_build_local_sync_write_plan_removes_stale_weird_due_prefix_and_restores
     entry = entry_by_id(plan, "task-1")
 
     assert entry.planned_due_date == date(2026, 4, 20)
+    assert entry.planned_schedule_date is None
     assert entry.mutation is not None
     assert entry.mutation.update_due_date is True
     assert entry.mutation.due_date == date(2026, 4, 20)
@@ -399,14 +401,14 @@ def test_build_local_sync_write_plan_groups_titles_with_due_prefix_after_update_
     tasks = (
         make_task(
             uuid="base",
-            title="[DUE 1700] INF 141: Lab",
+            title="[DUE 1700 4/20] INF 141: Lab",
             note_due="2026-04-20",
             due_at_line="2026-04-21 00:00:00 UTC (2026-04-20 17:00:00 PDT)",
             deadline_date=date(2026, 4, 19),
         ),
         make_task(
             uuid="update",
-            title="[UPDATE] [DUE 1700] INF 141: Lab",
+            title="[UPDATE] [DUE 1700 4/20] INF 141: Lab",
             note_due="2026-04-20",
             due_at_line="2026-04-21 00:00:00 UTC (2026-04-20 17:00:00 PDT)",
             deadline_date=date(2026, 4, 19),
@@ -418,3 +420,49 @@ def test_build_local_sync_write_plan_groups_titles_with_due_prefix_after_update_
     assert entry_by_id(plan, "base").classification == CLASSIFICATION_CANONICAL
     assert entry_by_id(plan, "update").classification == CLASSIFICATION_REDUNDANT_UPDATE
     assert entry_by_id(plan, "update").canonical_task_id == "base"
+
+
+def test_build_local_sync_write_plan_strips_legacy_due_prefix_while_renaming() -> None:
+    tasks = (
+        make_task(
+            uuid="task-1",
+            title="[DUE 1700] INF 141: Lab",
+            note_due="2026-04-20",
+            due_at_line="2026-04-21 00:00:00 UTC (2026-04-20 17:00:00 PDT)",
+            deadline_date=date(2026, 4, 20),
+        ),
+    )
+
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
+    entry = entry_by_id(plan, "task-1")
+
+    assert entry.mutation is not None
+    assert entry.mutation.update_title is True
+    assert entry.mutation.new_title == "[DUE 1700 4/20] INF 141: Lab"
+
+
+def test_build_local_sync_write_plan_uses_latest_update_schedule_date_for_primary() -> None:
+    tasks = (
+        make_task(
+            uuid="base",
+            title="INF 141: Lab",
+            note_due="2026-04-20",
+            due_at_line="2026-04-21 06:59:59 UTC (2026-04-20 23:59:59 PDT)",
+            deadline_date=date(2026, 4, 20),
+        ),
+        make_task(
+            uuid="update",
+            title="[UPDATE] INF 141: Lab",
+            note_due="2026-05-11",
+            due_at_line="2026-05-11 16:00:00 UTC (2026-05-11 09:00:00 PDT)",
+            deadline_date=date(2026, 5, 11),
+        ),
+    )
+
+    plan = build_local_sync_write_plan(tasks, candidate_cap=200, today=PLAN_TODAY)
+    base_entry = entry_by_id(plan, "base")
+
+    assert base_entry.planned_due_date == date(2026, 5, 11)
+    assert base_entry.planned_schedule_date == date(2026, 5, 10)
+    assert base_entry.mutation is not None
+    assert base_entry.mutation.new_title == "[DUE 0900 5/11] INF 141: Lab"

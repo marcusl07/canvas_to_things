@@ -110,6 +110,7 @@ def build_entry(
             writable=mutation is not None or classification != CLASSIFICATION_DIAGNOSTIC_ONLY,
             due_date=date(2026, 4, 15) if classification != CLASSIFICATION_DIAGNOSTIC_ONLY else None,
             effective_deadline_date=date(2026, 4, 15) if classification != CLASSIFICATION_DIAGNOSTIC_ONLY else None,
+            early_schedule_date=None,
             due_text="2026-04-15" if classification != CLASSIFICATION_DIAGNOSTIC_ONLY else None,
             due_at_info=None,
             weird_due_time=False,
@@ -125,6 +126,7 @@ def build_entry(
         candidate=candidate,
         classification=classification,
         planned_due_date=date(2026, 4, 15) if mutation is not None else None,
+        planned_schedule_date=None,
         canonical_task_id=uuid if classification == CLASSIFICATION_CANONICAL else None,
         mutation=mutation,
     )

@@ -7,7 +7,7 @@ Formats assignments into plain-text emails and delivers them through SMTP to
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
 from smtplib import SMTP, SMTPException
@@ -198,8 +198,8 @@ class Notifier:
                 return due_text
             return iso_string
 
-    def _weird_due_display_time(self, iso_string: str) -> str | None:
-        """Return HHMM when the local Canvas due time is not a normal 23:59 deadline."""
+    def _weird_due_info(self, iso_string: str) -> tuple[str, date] | None:
+        """Return title-prefix metadata when the local due time is not a normal 23:59 deadline."""
 
         try:
             dt_utc = self._parse_iso_datetime(iso_string)
@@ -207,7 +207,7 @@ class Notifier:
             dt_local = dt_utc.astimezone(tz)
             if dt_local.hour == 23 and dt_local.minute == 59:
                 return None
-            return dt_local.strftime("%H%M")
+            return dt_local.strftime("%H%M"), dt_local.date()
         except (ValueError, AttributeError) as exc:
             logger.warning("Failed to parse due time '%s': %s (skipping due-time title prefix)", iso_string, exc)
             return None
@@ -218,9 +218,10 @@ class Notifier:
             title=assignment.title,
         )
         if assignment.due_at:
-            weird_due_display_time = self._weird_due_display_time(assignment.due_at)
-            if weird_due_display_time is not None:
-                subject = f"{format_weird_due_title_prefix(weird_due_display_time)}{subject}"
+            weird_due_info = self._weird_due_info(assignment.due_at)
+            if weird_due_info is not None:
+                weird_due_display_time, weird_due_date = weird_due_info
+                subject = f"{format_weird_due_title_prefix(weird_due_display_time, weird_due_date)}{subject}"
         
         body_lines = [
             assignment.title,

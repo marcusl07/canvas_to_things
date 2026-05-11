@@ -150,11 +150,12 @@ Canvas:
     assert parsed.due_text == "2026-04-19"
     assert parsed.due_date == date(2026, 4, 19)
     assert parsed.effective_deadline_date == date(2026, 4, 19)
+    assert parsed.early_schedule_date is None
     assert parsed.weird_due_time is False
     assert parsed.diagnostics == ()
 
 
-def test_parse_task_note_marks_non_2359_due_at_as_weird_and_shifts_deadline() -> None:
+def test_parse_task_note_marks_non_2359_due_at_as_weird_and_exposes_early_schedule_date() -> None:
     parsed = parse_task_note(
         """
 Homework
@@ -168,7 +169,8 @@ Canvas:
     assert parsed.writable is True
     assert parsed.due_text == "2026-04-20"
     assert parsed.due_date == date(2026, 4, 20)
-    assert parsed.effective_deadline_date == date(2026, 4, 19)
+    assert parsed.effective_deadline_date == date(2026, 4, 20)
+    assert parsed.early_schedule_date == date(2026, 4, 19)
     assert parsed.weird_due_time is True
     assert parsed.weird_due_display_time == "1700"
     assert parsed.diagnostics == ()
@@ -186,6 +188,7 @@ Canvas:
 
     assert parsed.due_date == date(2026, 4, 20)
     assert parsed.effective_deadline_date == date(2026, 4, 20)
+    assert parsed.early_schedule_date is None
     assert parsed.weird_due_time is False
 
 
@@ -201,6 +204,7 @@ Canvas:
 
     assert parsed.due_date == date(2026, 4, 20)
     assert parsed.effective_deadline_date == date(2026, 4, 20)
+    assert parsed.early_schedule_date is None
     assert parsed.due_at_info is None
     assert parsed.weird_due_time is False
 

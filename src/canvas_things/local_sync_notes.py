@@ -34,6 +34,7 @@ class ParsedTaskNote:
     writable: bool
     due_date: date | None
     effective_deadline_date: date | None
+    early_schedule_date: date | None
     due_text: str | None
     due_at_info: DueAtInfo | None
     weird_due_time: bool
@@ -77,6 +78,7 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
                 writable=False,
                 due_date=None,
                 effective_deadline_date=None,
+                early_schedule_date=None,
                 due_text=None,
                 due_at_info=None,
                 weird_due_time=False,
@@ -90,6 +92,7 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             writable=False,
             due_date=None,
             effective_deadline_date=None,
+            early_schedule_date=None,
             due_text=None,
             due_at_info=None,
             weird_due_time=False,
@@ -115,6 +118,7 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             writable=False,
             due_date=None,
             effective_deadline_date=None,
+            early_schedule_date=None,
             due_text=None,
             due_at_info=None,
             weird_due_time=False,
@@ -137,6 +141,7 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             writable=False,
             due_date=None,
             effective_deadline_date=None,
+            early_schedule_date=None,
             due_text=None,
             due_at_info=None,
             weird_due_time=False,
@@ -158,6 +163,7 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             writable=False,
             due_date=None,
             effective_deadline_date=None,
+            early_schedule_date=None,
             due_text=None,
             due_at_info=None,
             weird_due_time=False,
@@ -183,6 +189,7 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             writable=False,
             due_date=None,
             effective_deadline_date=None,
+            early_schedule_date=None,
             due_text=None,
             due_at_info=None,
             weird_due_time=False,
@@ -215,6 +222,7 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
             writable=False,
             due_date=None,
             effective_deadline_date=None,
+            early_schedule_date=None,
             due_text=effective_due_text,
             due_at_info=due_at_info,
             weird_due_time=False,
@@ -225,13 +233,14 @@ def parse_task_note(note: str | None) -> ParsedTaskNote:
         )
 
     weird_due_time = due_at_info.is_weird_time if due_at_info is not None else False
-    effective_deadline_date = due_date - timedelta(days=1) if weird_due_time else due_date
+    early_schedule_date = due_date - timedelta(days=1) if weird_due_time else None
 
     return ParsedTaskNote(
         managed=True,
         writable=True,
         due_date=due_date,
-        effective_deadline_date=effective_deadline_date,
+        effective_deadline_date=due_date,
+        early_schedule_date=early_schedule_date,
         due_text=effective_due_text,
         due_at_info=due_at_info,
         weird_due_time=weird_due_time,

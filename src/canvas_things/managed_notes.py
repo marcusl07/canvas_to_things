@@ -11,7 +11,7 @@ MANAGED_NOTE_MARKER = "Canvas:"
 DUE_LINE_PREFIX = "Due:"
 COURSE_LINE_PREFIX = "Course:"
 LEGACY_DUE_AT_PREFIX = "Due At:"
-WEIRD_DUE_TITLE_RE = re.compile(r"^\[DUE (?P<time>\d{4})\]\s+")
+WEIRD_DUE_TITLE_RE = re.compile(r"^\[DUE (?P<time>\d{4})(?: \d{1,2}/\d{1,2})?\]\s+")
 _LEGACY_DUE_DATE_RE = re.compile(r"^(?P<due_date>\d{4}-\d{2}-\d{2})(?:\b|T)")
 _LEGACY_LOCAL_DUE_DATE_RE = re.compile(r"\((?P<due_date>\d{4}-\d{2}-\d{2})(?:\b|T)")
 _LOCAL_DUE_AT_RE = re.compile(
@@ -59,10 +59,10 @@ def format_managed_marker_line() -> str:
     return MANAGED_NOTE_MARKER
 
 
-def format_weird_due_title_prefix(display_time: str) -> str:
+def format_weird_due_title_prefix(display_time: str, due_date: date) -> str:
     """Return the visible Things title prefix for non-23:59 Canvas due times."""
 
-    return f"[DUE {display_time}] "
+    return f"[DUE {display_time} {due_date.month}/{due_date.day}] "
 
 
 def strip_weird_due_title_prefix(title: str) -> str:

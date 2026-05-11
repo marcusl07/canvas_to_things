@@ -130,7 +130,7 @@ def test_notifier_prefixes_weird_local_due_time_in_subject() -> None:
 
     notifier.notify([assignment])
 
-    assert str(transport.messages[0]["Subject"]) == "[DUE 1700] CS: Project"
+    assert str(transport.messages[0]["Subject"]) == "[DUE 1700 1/1] CS: Project"
 
 
 def test_notifier_places_weird_due_prefix_after_update_prefix() -> None:
@@ -143,7 +143,7 @@ def test_notifier_places_weird_due_prefix_after_update_prefix() -> None:
 
     notifier.notify([assignment])
 
-    assert str(transport.messages[0]["Subject"]) == "[UPDATE] [DUE 1700] CS: Project"
+    assert str(transport.messages[0]["Subject"]) == "[UPDATE] [DUE 1700 1/1] CS: Project"
 
 
 def test_notifier_places_description_before_trailing_managed_marker() -> None:

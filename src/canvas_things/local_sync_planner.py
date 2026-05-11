@@ -37,12 +37,20 @@ class LocalSyncManagedTask:
 
 
 @dataclass(frozen=True)
+class _PlannedDates:
+    due_date: date
+    schedule_date: date | None
+    weird_due_display_time: str | None
+
+
+@dataclass(frozen=True)
 class LocalSyncPlanEntry:
     """One managed task classified for diagnostics or mutation planning."""
 
     candidate: LocalSyncManagedTask
     classification: str
     planned_due_date: date | None
+    planned_schedule_date: date | None
     canonical_task_id: str | None
     mutation: LocalSyncTaskMutation | None
 
@@ -88,7 +96,7 @@ def build_local_sync_write_plan(
         )
 
     writable_candidates = [candidate for candidate in managed_candidates if candidate.parsed_note.writable]
-    canonical_ids_to_due_dates, redundant_ids_to_canonical_ids = _resolve_group_plans(
+    canonical_ids_to_planned_dates, redundant_ids_to_canonical_ids = _resolve_group_plans(
         writable_candidates,
         destination_project_title=move_to_project,
     )
@@ -97,7 +105,7 @@ def build_local_sync_write_plan(
     for candidate in managed_candidates:
         entries_by_task_id[candidate.task.uuid] = _build_plan_entry(
             candidate,
-            canonical_ids_to_due_dates=canonical_ids_to_due_dates,
+            canonical_ids_to_planned_dates=canonical_ids_to_planned_dates,
             redundant_ids_to_canonical_ids=redundant_ids_to_canonical_ids,
             move_to_project=move_to_project,
         )
@@ -138,19 +146,19 @@ def _resolve_group_plans(
     writable_candidates: Sequence[LocalSyncManagedTask],
     *,
     destination_project_title: str | None,
-) -> tuple[dict[str, date], dict[str, str]]:
+) -> tuple[dict[str, _PlannedDates], dict[str, str]]:
     grouped_candidates: dict[str, list[LocalSyncManagedTask]] = {}
     for candidate in writable_candidates:
         grouped_candidates.setdefault(candidate.normalized_title, []).append(candidate)
 
-    canonical_due_dates: dict[str, date] = {}
+    canonical_planned_dates: dict[str, _PlannedDates] = {}
     redundant_ids_to_canonical_ids: dict[str, str] = {}
     for group in grouped_candidates.values():
-        latest_due_date = max(
-            candidate.parsed_note.effective_deadline_date
-            for candidate in group
-            if candidate.parsed_note.effective_deadline_date is not None
+        latest_candidate = max(
+            group,
+            key=lambda candidate: candidate.parsed_note.effective_deadline_date or date.min,
         )
+        latest_planned_dates = _planned_dates_for_candidate(latest_candidate)
         primary_candidate = _choose_primary_canonical_candidate(
             group,
             destination_project_title=destination_project_title,
@@ -158,51 +166,63 @@ def _resolve_group_plans(
 
         non_update_candidates = [candidate for candidate in group if not candidate.is_update_notification]
         if non_update_candidates:
-            canonical_due_dates[primary_candidate.task.uuid] = latest_due_date
+            canonical_planned_dates[primary_candidate.task.uuid] = latest_planned_dates
             for candidate in non_update_candidates:
                 if candidate.task.uuid == primary_candidate.task.uuid:
                     continue
-                canonical_due_dates[candidate.task.uuid] = candidate.parsed_note.effective_deadline_date
+                canonical_planned_dates[candidate.task.uuid] = _planned_dates_for_candidate(candidate)
             for candidate in group:
                 if candidate.is_update_notification:
                     redundant_ids_to_canonical_ids[candidate.task.uuid] = primary_candidate.task.uuid
             continue
 
-        canonical_due_dates[primary_candidate.task.uuid] = latest_due_date
+        canonical_planned_dates[primary_candidate.task.uuid] = latest_planned_dates
         for candidate in group:
             if candidate.task.uuid != primary_candidate.task.uuid:
                 redundant_ids_to_canonical_ids[candidate.task.uuid] = primary_candidate.task.uuid
 
-    return canonical_due_dates, redundant_ids_to_canonical_ids
+    return canonical_planned_dates, redundant_ids_to_canonical_ids
+
+
+def _planned_dates_for_candidate(candidate: LocalSyncManagedTask) -> _PlannedDates:
+    if candidate.parsed_note.effective_deadline_date is None:
+        raise AssertionError("Writable managed candidates must have a planned deadline.")
+    return _PlannedDates(
+        due_date=candidate.parsed_note.effective_deadline_date,
+        schedule_date=candidate.parsed_note.early_schedule_date,
+        weird_due_display_time=candidate.parsed_note.weird_due_display_time,
+    )
 
 
 def _build_plan_entry(
     candidate: LocalSyncManagedTask,
     *,
-    canonical_ids_to_due_dates: dict[str, date],
+    canonical_ids_to_planned_dates: dict[str, _PlannedDates],
     redundant_ids_to_canonical_ids: dict[str, str],
     move_to_project: str | None,
 ) -> LocalSyncPlanEntry:
-    canonical_due_date = canonical_ids_to_due_dates.get(candidate.task.uuid)
+    planned_dates = canonical_ids_to_planned_dates.get(candidate.task.uuid)
     if not candidate.parsed_note.writable:
         return LocalSyncPlanEntry(
             candidate=candidate,
             classification=CLASSIFICATION_DIAGNOSTIC_ONLY,
             planned_due_date=None,
+            planned_schedule_date=None,
             canonical_task_id=None,
             mutation=None,
         )
 
-    if canonical_due_date is not None:
+    if planned_dates is not None:
         mutation = _build_canonical_mutation(
             candidate,
-            planned_due_date=canonical_due_date,
+            planned_dates=planned_dates,
             move_to_project=move_to_project,
         )
         return LocalSyncPlanEntry(
             candidate=candidate,
             classification=CLASSIFICATION_CANONICAL,
-            planned_due_date=canonical_due_date,
+            planned_due_date=planned_dates.due_date,
+            planned_schedule_date=planned_dates.schedule_date,
             canonical_task_id=candidate.task.uuid,
             mutation=mutation,
         )
@@ -217,6 +237,7 @@ def _build_plan_entry(
         candidate=candidate,
         classification=CLASSIFICATION_REDUNDANT_UPDATE,
         planned_due_date=None,
+        planned_schedule_date=None,
         canonical_task_id=canonical_candidate,
         mutation=mutation,
     )
@@ -256,11 +277,11 @@ def _canonical_priority(
 def _build_canonical_mutation(
     candidate: LocalSyncManagedTask,
     *,
-    planned_due_date: date,
+    planned_dates: _PlannedDates,
     move_to_project: str | None,
 ) -> LocalSyncTaskMutation | None:
-    update_due_date = candidate.task.deadline_date != planned_due_date
-    desired_title = _desired_task_title(candidate)
+    update_due_date = candidate.task.deadline_date != planned_dates.due_date
+    desired_title = _desired_task_title(candidate, planned_dates=planned_dates)
     update_title = candidate.task.title != desired_title
     project_target = None
     if move_to_project is not None and candidate.task.project_title != move_to_project:
@@ -273,7 +294,7 @@ def _build_canonical_mutation(
         task_id=candidate.task.uuid,
         title=candidate.task.title,
         update_due_date=update_due_date,
-        due_date=planned_due_date if update_due_date else None,
+        due_date=planned_dates.due_date if update_due_date else None,
         update_title=update_title,
         new_title=desired_title if update_title else None,
         project_target=project_target,
@@ -294,10 +315,14 @@ def normalize_managed_title(title: str) -> str:
     return strip_weird_due_title_prefix(title)
 
 
-def _desired_task_title(candidate: LocalSyncManagedTask) -> str:
+def _desired_task_title(candidate: LocalSyncManagedTask, *, planned_dates: _PlannedDates) -> str:
     title = normalize_managed_title(candidate.task.title)
-    if candidate.parsed_note.weird_due_display_time is not None:
-        title = f"{format_weird_due_title_prefix(candidate.parsed_note.weird_due_display_time)}{title}"
+    if planned_dates.weird_due_display_time is not None:
+        prefix = format_weird_due_title_prefix(
+            planned_dates.weird_due_display_time,
+            planned_dates.due_date,
+        )
+        title = f"{prefix}{title}"
     if candidate.is_update_notification:
         return f"{UPDATE_TITLE_PREFIX}{title}"
     return title
