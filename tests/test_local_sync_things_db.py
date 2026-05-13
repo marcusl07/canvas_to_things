@@ -16,7 +16,12 @@ from canvas_things.local_sync_things_db import (
 )
 
 
-def create_db(tmp_path: Path, *, missing_columns: set[str] | None = None) -> Path:
+def create_db(
+    tmp_path: Path,
+    *,
+    missing_columns: set[str] | None = None,
+    activation_date_column: str = "activation_date",
+) -> Path:
     missing_columns = missing_columns or set()
     db_path = tmp_path / "main.sqlite"
     columns = [
@@ -27,7 +32,7 @@ def create_db(tmp_path: Path, *, missing_columns: set[str] | None = None) -> Pat
         ("title", "TEXT"),
         ("notes", "TEXT"),
         ("deadline", "INTEGER"),
-        ("activation_date", "INTEGER"),
+        (activation_date_column, "INTEGER"),
         ("project", "TEXT"),
         ("heading", "TEXT"),
     ]
@@ -54,14 +59,16 @@ def insert_task(
     notes: str | None = None,
     deadline: int | None = None,
     activation_date: int | None = None,
+    activation_date_column: str = "activation_date",
     project: str | None = None,
     heading: str | None = None,
 ) -> None:
     connection = sqlite3.connect(db_path)
     try:
         connection.execute(
-            """
-            INSERT INTO TMTask (uuid, type, status, trashed, title, notes, deadline, activation_date, project, heading)
+            f"""
+            INSERT INTO TMTask
+                (uuid, type, status, trashed, title, notes, deadline, {activation_date_column}, project, heading)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (uuid, type, status, trashed, title, notes, deadline, activation_date, project, heading),
@@ -130,6 +137,25 @@ def test_discover_open_tasks_inbox_scope_only_returns_open_inbox_tasks(tmp_path)
     assert inbox_task.activation_date == date(2026, 4, 9)
     assert inbox_task.project_uuid is None
     assert inbox_task.project_title is None
+
+
+def test_discover_open_tasks_accepts_current_things_start_date_column(tmp_path):
+    db_path = create_db(tmp_path, activation_date_column="startDate")
+    insert_task(
+        db_path,
+        uuid="inbox-task",
+        type=0,
+        title="Inbox Task",
+        deadline=encode_deadline(date(2026, 4, 10)),
+        activation_date=encode_deadline(date(2026, 4, 9)),
+        activation_date_column="startDate",
+    )
+
+    result = discover_open_tasks(None, db_path=db_path)
+
+    assert len(result.tasks) == 1
+    assert result.tasks[0].activation_date_value == encode_deadline(date(2026, 4, 9))
+    assert result.tasks[0].activation_date == date(2026, 4, 9)
 
 
 def test_discover_open_tasks_named_project_includes_heading_descendants(tmp_path):

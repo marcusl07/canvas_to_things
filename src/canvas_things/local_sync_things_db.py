@@ -29,11 +29,12 @@ _REQUIRED_TASK_COLUMNS = frozenset(
         "title",
         "notes",
         "deadline",
-        "activation_date",
         "project",
         "heading",
     }
 )
+
+_ACTIVATION_DATE_COLUMNS = ("activation_date", "startDate")
 
 
 class LocalSyncThingsDBError(RuntimeError):
@@ -127,12 +128,13 @@ def discover_open_tasks(
 
     resolved_db_path = resolve_things_db_path(db_path, group_container_path=group_container_path)
     with connect_readonly_things_db(resolved_db_path) as connection:
-        _validate_schema(connection)
+        activation_date_column = _validate_schema(connection)
         scope = resolve_scope(connection, project_title)
         tasks = _load_discovery_tasks(
             connection,
             scope=scope,
             move_to_project=move_to_project,
+            activation_date_column=activation_date_column,
         )
     return ThingsDiscoveryResult(db_path=resolved_db_path, scope=scope, tasks=tasks)
 
@@ -200,13 +202,21 @@ def connect_readonly_things_db(db_path: Path) -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
-def _validate_schema(connection: sqlite3.Connection) -> None:
+def _validate_schema(connection: sqlite3.Connection) -> str:
     task_columns = _read_table_columns(connection, "TMTask")
     missing_columns = sorted(_REQUIRED_TASK_COLUMNS.difference(task_columns))
     if missing_columns:
         raise LocalSyncThingsDBSchemaError(
             "Unexpected TMTask schema. Missing required columns: " + ", ".join(missing_columns) + "."
         )
+    for column_name in _ACTIVATION_DATE_COLUMNS:
+        if column_name in task_columns:
+            return column_name
+    raise LocalSyncThingsDBSchemaError(
+        "Unexpected TMTask schema. Missing required columns: "
+        + " or ".join(_ACTIVATION_DATE_COLUMNS)
+        + "."
+    )
 
 
 def _read_table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
@@ -219,10 +229,12 @@ def _read_table_columns(connection: sqlite3.Connection, table_name: str) -> set[
 def _load_open_tasks(
     connection: sqlite3.Connection,
     scope: ThingsScope,
+    *,
+    activation_date_column: str,
 ) -> tuple[ThingsTaskRecord, ...]:
     if scope.kind == "inbox":
         rows = connection.execute(
-            """
+            f"""
             WITH RECURSIVE inbox_headings(uuid) AS (
                 SELECT uuid
                 FROM TMTask
@@ -245,7 +257,7 @@ def _load_open_tasks(
                 task.title,
                 task.notes,
                 task.deadline,
-                task.activation_date,
+                task.{activation_date_column} AS activation_date,
                 task.heading,
                 NULL AS project_uuid,
                 NULL AS project_title
@@ -268,7 +280,7 @@ def _load_open_tasks(
         ).fetchall()
     elif scope.kind == "project" and scope.project_uuid is not None and scope.project_title is not None:
         rows = connection.execute(
-            """
+            f"""
             WITH RECURSIVE scope_headings(uuid) AS (
                 SELECT uuid
                 FROM TMTask
@@ -290,7 +302,7 @@ def _load_open_tasks(
                 task.title,
                 task.notes,
                 task.deadline,
-                task.activation_date,
+                task.{activation_date_column} AS activation_date,
                 task.heading,
                 :project_uuid AS project_uuid,
                 :project_title AS project_title
@@ -323,13 +335,18 @@ def _load_discovery_tasks(
     *,
     scope: ThingsScope,
     move_to_project: str | None,
+    activation_date_column: str,
 ) -> tuple[ThingsTaskRecord, ...]:
-    tasks = _load_open_tasks(connection, scope)
+    tasks = _load_open_tasks(connection, scope, activation_date_column=activation_date_column)
     if scope.kind != "inbox" or move_to_project is None:
         return tasks
 
     destination_scope = resolve_scope(connection, move_to_project)
-    destination_tasks = _load_open_tasks(connection, destination_scope)
+    destination_tasks = _load_open_tasks(
+        connection,
+        destination_scope,
+        activation_date_column=activation_date_column,
+    )
     return _merge_discovery_tasks(tasks, destination_tasks)
 
 
