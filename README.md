@@ -83,6 +83,41 @@ If you check the box **"Run in dry-run mode (no emails sent)"**, it will check f
 
 ---
 
+## On-demand single-assignment import
+
+The `scripts/pick_to_things.py` tool lets you manually pick specific Canvas assignments and create them directly in Things 3 with the Canvas due date set as the actual Things **Deadline** field — no email, no polling, no database patching.
+
+### Requirements
+
+- macOS with Things 3 installed
+- `CANVAS_TOKEN` environment variable (same token used for the email poller)
+- A `config/config.yml` file (see Setup Guide above — only the `canvas` and `run.timezone` sections are read; SMTP and Things-email settings are ignored)
+
+### Usage
+
+```bash
+# Preview what would be added (no Things tasks created)
+CANVAS_TOKEN=xxx python3 scripts/pick_to_things.py --config config/config.yml --dry-run
+
+# Interactive run — pick assignments from a numbered list
+CANVAS_TOKEN=xxx python3 scripts/pick_to_things.py --config config/config.yml
+
+# Show assignments due in the next 14 days (default is 21)
+CANVAS_TOKEN=xxx python3 scripts/pick_to_things.py --days 14
+
+# Restrict to one course by alias
+CANVAS_TOKEN=xxx python3 scripts/pick_to_things.py --course CS101
+
+# Also show assignments with no due date
+CANVAS_TOKEN=xxx python3 scripts/pick_to_things.py --include-undated
+```
+
+When you run it without `--dry-run`, the script prints a numbered list of assignments within the window, prompts you to enter comma-separated numbers (or `a` for all), then opens a `things:///add` URL for each pick. Things 3 creates the task with the Deadline field set to the correct local calendar date.
+
+**Note:** Re-running the script on the same assignment creates a second Things task. This is intentional — the tool is manual and deliberate, not the automated poller.
+
+---
+
 ## Local Deadline Sync Companion
 
 The local companion runs on your Mac, reads your local Things database, and updates deadlines for Canvas-managed tasks. Setup always starts in `dry-run`; nothing writes to Things until you explicitly enable `apply`.
