@@ -15,6 +15,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: canvas-things-poll
+  cancel-in-progress: false
+
 jobs:
   poll:
     runs-on: ubuntu-latest
@@ -51,34 +55,26 @@ jobs:
       - name: Find last successful run
         id: get_run_id
         run: |
-          # Get list of successful runs for this workflow, take the latest one
-          # We need to filter for the same workflow (Main) and status=success
-          RUN_ID=$(gh run list --workflow "poll.yml" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
-          
-          if [ -z "$RUN_ID" ] || [ "$RUN_ID" == "null" ]; then
-            echo "No previous successful run found. This might be the first run."
-            echo "run_id=" >> "$GITHUB_OUTPUT"
-          else
-            echo "Found last successful run ID: $RUN_ID"
-            echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-          fi
+          # GitHub's server-side status filter can return stale runs. Filter locally.
+          gh run list --workflow "poll.yml" --limit 100 \
+            --json databaseId,createdAt,status,conclusion > /tmp/poll-runs.json
+          RUN_ID=$(python scripts/poll_history.py < /tmp/poll-runs.json)
+          echo "Found last successful run ID: $RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Download previous state artifact
-        if: steps.get_run_id.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: canvas-state
           path: data
           run-id: ${{ steps.get_run_id.outputs.run_id }}
           github-token: ${{ github.token }}
-        continue-on-error: true
 
-      - name: Ensure state file exists
+      - name: Validate recovered history
         run: |
-          mkdir -p data
-          if [ ! -s data/state.json ]; then echo "{}" > data/state.json; fi
+          python scripts/poll_history.py data/state.json
 
       - name: Write Canvas config from secret
         if: ${{ env.CANVAS_CONFIG_YAML != '' }}
@@ -133,4 +129,5 @@ jobs:
         with:
           name: canvas-state
           path: data/state.json
+          if-no-files-found: error
           retention-days: 30

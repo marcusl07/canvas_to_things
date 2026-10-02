@@ -2,6 +2,10 @@
 
 This tool automatically checks your Canvas courses for new assignments and emails them directly to your **Things 3** "Mail to Things" address. It runs entirely in the cloud (GitHub Actions), so you don't need to keep your computer on.
 
+The poller recovers import history from the newest successful run among the 100 most recent runs. It fetches runs without GitHub's server-side status filter and selects the successful run locally, avoiding stale filtered results. Scheduled and manual polls share a concurrency group so they cannot send simultaneously.
+
+If history cannot be selected, downloaded, or validated, the run fails before sending emails. It never silently starts with empty history or falls back to an older backup that could omit recent imports. The next run retries automatically. History artifacts expire after 30 days; after a long pause or deletion, restore or reconstruct the history before resuming. A brand-new installation also needs an explicitly seeded `canvas-state` artifact containing `data/state.json` (for example, `{"notified": {}, "pending": []}`); an existing installation must use recovered history instead.
+
 It also includes an optional macOS-only local companion that reads your local Things database and syncs deadlines back into existing Things tasks using note markers.
 
 ## What it does
