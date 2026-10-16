@@ -474,3 +474,61 @@ def test_build_local_sync_write_plan_uses_latest_update_schedule_date_for_primar
     assert base_entry.planned_schedule_date == date(2026, 5, 10)
     assert base_entry.mutation is not None
     assert base_entry.mutation.new_title == "[DUE 0900 5/11] INF 141: Lab"
+
+
+@pytest.mark.parametrize("due", [date(2026, 4, 1), date(2026, 4, 20)])
+@pytest.mark.parametrize("activation", [date(2026, 3, 31), date(2026, 4, 1)])
+def test_build_local_sync_write_plan_preserves_today_and_carried_over_tasks(due, activation):
+    task = make_task(
+        uuid="task-1",
+        title="INF 141: Lab",
+        note_due=due.isoformat(),
+        deadline_date=due,
+        activation_date=activation,
+    )
+
+    plan = build_local_sync_write_plan([task], candidate_cap=200, today=PLAN_TODAY)
+
+    assert plan.mutations == ()
+    assert plan.entries[0].planned_schedule_date == activation
+
+
+@pytest.mark.parametrize("due", [date(2026, 4, 1), date(2026, 4, 20)])
+def test_build_local_sync_write_plan_does_not_reschedule_today_for_early_warning(due):
+    task = make_task(
+        uuid="task-1",
+        title="INF 141: Lab",
+        note_due=due.isoformat(),
+        due_at_line=f"{due.isoformat()} 16:00:00 UTC ({due.isoformat()} 09:00:00 PDT)",
+        deadline_date=due,
+        activation_date=PLAN_TODAY,
+    )
+
+    plan = build_local_sync_write_plan([task], candidate_cap=200, today=PLAN_TODAY)
+    entry = plan.entries[0]
+
+    assert entry.planned_schedule_date == PLAN_TODAY
+    assert entry.mutation is not None
+    assert entry.mutation.update_schedule_date is False
+    assert entry.mutation.update_title is True
+    assert entry.mutation.new_title == f"[DUE 0900 {due.month}/{due.day}] INF 141: Lab"
+
+
+def test_build_local_sync_write_plan_updates_deadline_and_title_without_clearing_today():
+    task = make_task(
+        uuid="task-1",
+        title="[DUE 1700 4/1] INF 141: Lab",
+        note_due="2026-04-20",
+        due_at_line="2026-04-21 06:59:59 UTC (2026-04-20 23:59:59 PDT)",
+        deadline_date=PLAN_TODAY,
+        activation_date=PLAN_TODAY,
+    )
+
+    plan = build_local_sync_write_plan([task], candidate_cap=200, today=PLAN_TODAY)
+    mutation = plan.mutations[0]
+
+    assert mutation.update_due_date is True
+    assert mutation.due_date == date(2026, 4, 20)
+    assert mutation.update_title is True
+    assert mutation.new_title == "INF 141: Lab"
+    assert mutation.update_schedule_date is False

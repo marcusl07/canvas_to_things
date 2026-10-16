@@ -817,6 +817,45 @@ def test_main_apply_schedules_weird_due_time_as_early_warning(monkeypatch, tmp_p
     assert any("planned_mutations=1 mutation_results=1/1 successes=1 failures=0" in message for message in handler.messages)
 
 
+@pytest.mark.parametrize("due", [date(2026, 4, 1), date(2026, 4, 20)])
+def test_main_apply_updates_deadline_without_moving_today_task(monkeypatch, tmp_path, due):
+    config_path = write_config(tmp_path, mode="apply")
+    db_path = create_db(tmp_path)
+    logger, handler = build_logger("tests.local_sync_integration.preserve_today")
+
+    insert_task(
+        db_path,
+        uuid="task-1",
+        task_type=TASK_TYPE,
+        title="INF 141: Lab",
+        notes=managed_note(due.isoformat()),
+        deadline=encode_deadline(date(2026, 4, 2)),
+        activation_date=encode_deadline(LOCAL_SYNC_TODAY),
+    )
+
+    def execution_builder(script: str, mutations: Sequence[LocalSyncTaskMutation]) -> AppleScriptExecutionResult:
+        assert len(mutations) == 1
+        mutation = mutations[0]
+        assert mutation.update_due_date is True
+        assert mutation.due_date == due
+        assert mutation.update_schedule_date is False
+        assert 'move taskRef to list "Anytime"' not in script
+        assert "schedule taskRef for date" not in script
+        return AppleScriptExecutionResult(
+            returncode=0, stdout=json.dumps([mutation_payload(mutation)]), stderr=""
+        )
+
+    install_main_integration(
+        monkeypatch,
+        db_path=db_path,
+        logger=logger,
+        execution_builder=execution_builder,
+    )
+
+    assert main(["--config", str(config_path)]) == 0
+    assert any("successes=1 failures=0" in message for message in handler.messages)
+
+
 def test_main_apply_clears_stale_weird_due_schedule_and_title(monkeypatch, tmp_path):
     config_path = write_config(tmp_path, mode="apply")
     db_path = create_db(tmp_path)

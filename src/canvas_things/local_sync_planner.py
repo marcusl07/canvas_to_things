@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Iterable, Sequence
 
@@ -108,6 +108,7 @@ def build_local_sync_write_plan(
             canonical_ids_to_planned_dates=canonical_ids_to_planned_dates,
             redundant_ids_to_canonical_ids=redundant_ids_to_canonical_ids,
             move_to_project=move_to_project,
+            today=today,
         )
 
     entries = tuple(entries_by_task_id[candidate.task.uuid] for candidate in managed_candidates)
@@ -200,6 +201,7 @@ def _build_plan_entry(
     canonical_ids_to_planned_dates: dict[str, _PlannedDates],
     redundant_ids_to_canonical_ids: dict[str, str],
     move_to_project: str | None,
+    today: date,
 ) -> LocalSyncPlanEntry:
     planned_dates = canonical_ids_to_planned_dates.get(candidate.task.uuid)
     if not candidate.parsed_note.writable:
@@ -213,6 +215,11 @@ def _build_plan_entry(
         )
 
     if planned_dates is not None:
+        # Today includes unfinished tasks carried over from earlier start dates.
+        # Preserve that placement, whether selected by Things or by the user.
+        activation_date = candidate.task.activation_date
+        if activation_date is not None and activation_date <= today:
+            planned_dates = replace(planned_dates, schedule_date=activation_date)
         mutation = _build_canonical_mutation(
             candidate,
             planned_dates=planned_dates,

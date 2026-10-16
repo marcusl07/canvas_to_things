@@ -91,7 +91,9 @@ If you check the box **"Run in dry-run mode (no emails sent)"**, it will check f
 
 The local companion runs on your Mac, reads your local Things database, and updates deadlines for Canvas-managed tasks. Setup always starts in `dry-run`; nothing writes to Things until you explicitly enable `apply`.
 
-If a Canvas assignment is due at a local time other than 23:59, the companion treats it as an early warning: the real Canvas due date stays as the Things deadline, the previous day becomes the Things When/Today date, and the title is prefixed with the local due time plus due date, for example `[DUE 0900 5/11]`. If Canvas later changes the assignment back to a normal 23:59 due time, the next sync removes the prefix and clears the When date while keeping the deadline on the actual Canvas due date.
+If a Canvas assignment is due at a local time other than 23:59, the companion treats it as an early warning: the real Canvas due date stays as the Things deadline, the previous day becomes the Things When/Today date, and the title is prefixed with the local due time plus due date, for example `[DUE 0900 5/11]`. If Canvas later changes the assignment back to a normal 23:59 due time, the next sync removes the prefix and clears a future When date while keeping the deadline on the actual Canvas due date.
+
+Assignments already scheduled for Today stay there, including unfinished tasks carried over from earlier days. This applies whether Things added them because their deadline arrived or you manually chose Today for an assignment due later. Deadline and title updates still sync, but Today placement takes priority over clearing or changing the When date for early warnings.
 
 ### Setup
 1. Copy `config/config.example.yml` to `config/config.yml` if you have not already, then fill in your normal Canvas/email settings.
